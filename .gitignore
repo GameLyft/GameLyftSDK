@@ -1,0 +1,16 @@
+# Whitelist-style gitignore: track only Assets/GameLyftSDK/
+
+# Ignore everything at the repo root
+/*
+
+# But keep the gitignore itself
+!/.gitignore
+
+# Walk into Assets/ ...
+!/Assets/
+
+# ... ignore everything inside it ...
+/Assets/*
+
+# ... except the GameLyftSDK package
+!/Assets/GameLyftSDK/
