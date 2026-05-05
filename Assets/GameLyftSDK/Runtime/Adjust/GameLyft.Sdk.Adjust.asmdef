@@ -1,0 +1,19 @@
+{
+    "name": "GameLyft.Sdk.Adjust",
+    "rootNamespace": "GameLyft.Sdk",
+    "references": [
+        "GameLyft.Sdk",
+        "AdjustSdk.Scripts"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "GAMELYFT_ADJUST"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

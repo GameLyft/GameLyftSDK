@@ -10,10 +10,14 @@ namespace GameLyft.Sdk.EditorTools
         private const string ADMOB_DEFINE = "GAMELYFT_ADMOB";
         private const string APPLOVIN_DEFINE = "GAMELYFT_APPLOVIN";
         private const string SOLAR_ENGINE_DEFINE = "GAMELYFT_SOLAR_ENGINE";
+        private const string APPSFLYER_DEFINE = "GAMELYFT_APPSFLYER";
+        private const string ADJUST_DEFINE = "GAMELYFT_ADJUST";
 
         private SerializedProperty _useAdMob;
         private SerializedProperty _useAppLovin;
         private SerializedProperty _enableSolarEngineMmp;
+        private SerializedProperty _enableAppsFlyerMmp;
+        private SerializedProperty _enableAdjustMmp;
         private SerializedProperty _testMode;
         private SerializedProperty _autoInitialize;
 
@@ -22,6 +26,8 @@ namespace GameLyft.Sdk.EditorTools
             _useAdMob = serializedObject.FindProperty("useAdMobMediation");
             _useAppLovin = serializedObject.FindProperty("useAppLovinMax");
             _enableSolarEngineMmp = serializedObject.FindProperty("enableSolarEngineMmp");
+            _enableAppsFlyerMmp = serializedObject.FindProperty("enableAppsFlyerMmp");
+            _enableAdjustMmp = serializedObject.FindProperty("enableAdjustMmp");
             _testMode = serializedObject.FindProperty("testMode");
             _autoInitialize = serializedObject.FindProperty("autoInitialize");
 
@@ -33,6 +39,8 @@ namespace GameLyft.Sdk.EditorTools
             DefineSymbolManager.SetDefine(ADMOB_DEFINE, _useAdMob.boolValue);
             DefineSymbolManager.SetDefine(APPLOVIN_DEFINE, _useAppLovin.boolValue);
             DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, _enableSolarEngineMmp.boolValue);
+            DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, _enableAppsFlyerMmp.boolValue);
+            DefineSymbolManager.SetDefine(ADJUST_DEFINE, _enableAdjustMmp.boolValue);
         }
 
         // Reconcile on every editor reload, even when the inspector never opens.
@@ -50,6 +58,8 @@ namespace GameLyft.Sdk.EditorTools
             DefineSymbolManager.SetDefine(ADMOB_DEFINE, settings.useAdMobMediation);
             DefineSymbolManager.SetDefine(APPLOVIN_DEFINE, settings.useAppLovinMax);
             DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, settings.enableSolarEngineMmp);
+            DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, settings.enableAppsFlyerMmp);
+            DefineSymbolManager.SetDefine(ADJUST_DEFINE, settings.enableAdjustMmp);
         }
 
         public override void OnInspectorGUI()
@@ -101,6 +111,22 @@ namespace GameLyft.Sdk.EditorTools
                 DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, solarMmp);
             }
 
+            EditorGUI.BeginChangeCheck();
+            bool appsFlyerMmp = EditorGUILayout.ToggleLeft("AppsFlyer MMP", _enableAppsFlyerMmp.boolValue);
+            if (EditorGUI.EndChangeCheck())
+            {
+                _enableAppsFlyerMmp.boolValue = appsFlyerMmp;
+                DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, appsFlyerMmp);
+            }
+
+            EditorGUI.BeginChangeCheck();
+            bool adjustMmp = EditorGUILayout.ToggleLeft("Adjust MMP", _enableAdjustMmp.boolValue);
+            if (EditorGUI.EndChangeCheck())
+            {
+                _enableAdjustMmp.boolValue = adjustMmp;
+                DefineSymbolManager.SetDefine(ADJUST_DEFINE, adjustMmp);
+            }
+
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Initialization", EditorStyles.miniBoldLabel);
             EditorGUILayout.HelpBox(
@@ -128,6 +154,8 @@ namespace GameLyft.Sdk.EditorTools
             EditorGUILayout.LabelField("GAMELYFT_ADMOB:", DefineSymbolManager.HasDefine(ADMOB_DEFINE) ? "ON" : "off");
             EditorGUILayout.LabelField("GAMELYFT_APPLOVIN:", DefineSymbolManager.HasDefine(APPLOVIN_DEFINE) ? "ON" : "off");
             EditorGUILayout.LabelField("GAMELYFT_SOLAR_ENGINE:", DefineSymbolManager.HasDefine(SOLAR_ENGINE_DEFINE) ? "ON" : "off");
+            EditorGUILayout.LabelField("GAMELYFT_APPSFLYER:", DefineSymbolManager.HasDefine(APPSFLYER_DEFINE) ? "ON" : "off");
+            EditorGUILayout.LabelField("GAMELYFT_ADJUST:", DefineSymbolManager.HasDefine(ADJUST_DEFINE) ? "ON" : "off");
 
             serializedObject.ApplyModifiedProperties();
         }

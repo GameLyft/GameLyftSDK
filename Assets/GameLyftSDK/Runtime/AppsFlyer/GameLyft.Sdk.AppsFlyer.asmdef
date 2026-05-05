@@ -1,0 +1,19 @@
+{
+    "name": "GameLyft.Sdk.AppsFlyer",
+    "rootNamespace": "GameLyft.Sdk",
+    "references": [
+        "GameLyft.Sdk",
+        "AppsFlyer"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "GAMELYFT_APPSFLYER"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
