@@ -9,9 +9,11 @@ namespace GameLyft.Sdk.EditorTools
     {
         private const string ADMOB_DEFINE = "GAMELYFT_ADMOB";
         private const string APPLOVIN_DEFINE = "GAMELYFT_APPLOVIN";
+        private const string SOLAR_ENGINE_DEFINE = "GAMELYFT_SOLAR_ENGINE";
 
         private SerializedProperty _useAdMob;
         private SerializedProperty _useAppLovin;
+        private SerializedProperty _enableSolarEngineMmp;
         private SerializedProperty _testMode;
         private SerializedProperty _autoInitialize;
 
@@ -19,6 +21,7 @@ namespace GameLyft.Sdk.EditorTools
         {
             _useAdMob = serializedObject.FindProperty("useAdMobMediation");
             _useAppLovin = serializedObject.FindProperty("useAppLovinMax");
+            _enableSolarEngineMmp = serializedObject.FindProperty("enableSolarEngineMmp");
             _testMode = serializedObject.FindProperty("testMode");
             _autoInitialize = serializedObject.FindProperty("autoInitialize");
 
@@ -29,6 +32,7 @@ namespace GameLyft.Sdk.EditorTools
             // disagreeing with the checkbox state.
             DefineSymbolManager.SetDefine(ADMOB_DEFINE, _useAdMob.boolValue);
             DefineSymbolManager.SetDefine(APPLOVIN_DEFINE, _useAppLovin.boolValue);
+            DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, _enableSolarEngineMmp.boolValue);
         }
 
         // Reconcile on every editor reload, even when the inspector never opens.
@@ -45,6 +49,7 @@ namespace GameLyft.Sdk.EditorTools
 
             DefineSymbolManager.SetDefine(ADMOB_DEFINE, settings.useAdMobMediation);
             DefineSymbolManager.SetDefine(APPLOVIN_DEFINE, settings.useAppLovinMax);
+            DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, settings.enableSolarEngineMmp);
         }
 
         public override void OnInspectorGUI()
@@ -79,6 +84,24 @@ namespace GameLyft.Sdk.EditorTools
             }
 
             EditorGUILayout.Space();
+            EditorGUILayout.LabelField("MMP (Attribution)", EditorStyles.miniBoldLabel);
+            EditorGUILayout.HelpBox(
+                "Enable an MMP integration to auto-report attribution as a one-shot 'mmp_install' " +
+                "Firebase event. Each integration polls its own SDK for attribution after init, " +
+                "then maps source/campaign/ad_set/creative to the standard schema. The install " +
+                "event is guarded to fire at most once per device install regardless of how many " +
+                "MMPs are enabled — whichever delivers attribution first wins.",
+                MessageType.Info);
+
+            EditorGUI.BeginChangeCheck();
+            bool solarMmp = EditorGUILayout.ToggleLeft("Solar Engine MMP", _enableSolarEngineMmp.boolValue);
+            if (EditorGUI.EndChangeCheck())
+            {
+                _enableSolarEngineMmp.boolValue = solarMmp;
+                DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, solarMmp);
+            }
+
+            EditorGUILayout.Space();
             EditorGUILayout.LabelField("Initialization", EditorStyles.miniBoldLabel);
             EditorGUILayout.HelpBox(
                 "Auto Initialize polls for Firebase readiness at app start and calls "
@@ -104,6 +127,7 @@ namespace GameLyft.Sdk.EditorTools
             EditorGUILayout.LabelField("Status", EditorStyles.miniBoldLabel);
             EditorGUILayout.LabelField("GAMELYFT_ADMOB:", DefineSymbolManager.HasDefine(ADMOB_DEFINE) ? "ON" : "off");
             EditorGUILayout.LabelField("GAMELYFT_APPLOVIN:", DefineSymbolManager.HasDefine(APPLOVIN_DEFINE) ? "ON" : "off");
+            EditorGUILayout.LabelField("GAMELYFT_SOLAR_ENGINE:", DefineSymbolManager.HasDefine(SOLAR_ENGINE_DEFINE) ? "ON" : "off");
 
             serializedObject.ApplyModifiedProperties();
         }

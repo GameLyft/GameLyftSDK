@@ -36,6 +36,14 @@ namespace GameLyft.Sdk
         public static readonly AdRevenueSurface AdRevenue = new AdRevenueSurface();
 
         /// <summary>
+        /// MMP (mobile measurement partner) sub-surface. Per-MMP integration scripts
+        /// (GameLyft.Sdk.SolarEngine, GameLyft.Sdk.AppsFlyer, GameLyft.Sdk.Adjust, ...)
+        /// extract source/campaign/ad_set/creative from their SDK's attribution payload
+        /// and call LogInstall(). Fires a one-shot 'mmp_install' Firebase event.
+        /// </summary>
+        public static readonly MmpSurface Mmp = new MmpSurface();
+
+        /// <summary>
         /// Receiver type for ad revenue extension methods. Has no instance state — it's a
         /// namespace-like marker that mediation DLLs can attach Report() methods to via
         /// C# extension methods (since partial classes can't span assemblies).
@@ -72,6 +80,53 @@ namespace GameLyft.Sdk
 
                 EventDispatcher.Instance.LogEvent("gl_ad_impression", adParams);
             }
+        }
+
+        /// <summary>
+        /// MMP attribution receiver. Each MMP integration (Solar Engine, AppsFlyer, Adjust,
+        /// Singular, Tenjin, ...) extracts its own SDK's attribution into the 4 standard
+        /// fields and calls LogInstall(). One-shot guarded across runs so multiple MMPs in
+        /// the same project can't double-fire 'mmp_install' — whichever MMP delivers
+        /// attribution first wins, the rest no-op.
+        /// </summary>
+        public sealed class MmpSurface
+        {
+            private const string GUARD_KEY = "GLSdk_mmp_install_sent";
+
+            internal MmpSurface() { }
+
+            /// <summary>
+            /// Fires 'mmp_install' once per device install with the 4 standard attribution
+            /// fields. Subsequent calls (this run or any future run on the same device)
+            /// are silent no-ops thanks to the PlayerPrefs guard.
+            ///
+            /// Falls back to "Organic" when source is null/empty so dashboards never see a
+            /// blank acquisition channel.
+            /// </summary>
+            public void LogInstall(string source, string campaign, string adSet, string creative)
+            {
+                if (PlayerPrefs.GetInt(GUARD_KEY) == 1) return;
+
+                EnsureDispatcher();
+
+                var parameters = new List<EventDispatcher.QueuedParameter>
+                {
+                    EventDispatcher.StringParam("source", string.IsNullOrEmpty(source) ? "Organic" : source),
+                    EventDispatcher.StringParam("campaign", campaign ?? ""),
+                    EventDispatcher.StringParam("ad_set", adSet ?? ""),
+                    EventDispatcher.StringParam("creative", creative ?? ""),
+                };
+
+                EventDispatcher.Instance.LogEvent("mmp_install", parameters);
+
+                PlayerPrefs.SetInt(GUARD_KEY, 1);
+                PlayerPrefs.Save();
+            }
+
+            /// <summary>True if 'mmp_install' has already been fired on this device. MMP
+            /// integration scripts can use this to skip work (e.g. don't bother polling
+            /// for attribution if we already reported the install).</summary>
+            public bool IsInstallReported => PlayerPrefs.GetInt(GUARD_KEY) == 1;
         }
 
         /// <summary>True after Initialize() has been called.</summary>

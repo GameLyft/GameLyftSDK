@@ -1,0 +1,19 @@
+{
+    "name": "GameLyft.Sdk.SolarEngine",
+    "rootNamespace": "GameLyft.Sdk",
+    "references": [
+        "GameLyft.Sdk",
+        "SolarEngineSDK"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "GAMELYFT_SOLAR_ENGINE"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

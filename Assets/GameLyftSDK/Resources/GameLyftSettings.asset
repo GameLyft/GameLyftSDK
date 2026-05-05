@@ -14,5 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   useAdMobMediation: 1
   useAppLovinMax: 0
+  enableSolarEngineMmp: 1
   testMode: 0
   autoInitialize: 1

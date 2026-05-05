@@ -18,6 +18,9 @@ namespace GameLyft.Sdk
         [Tooltip("Enable AppLovin MAX mediation. Defines GAMELYFT_APPLOVIN. Required to call GameLyftAnalytics.AdRevenue.Report(MaxSdkBase.AdInfo).")]
         public bool useAppLovinMax = false;
 
+        [Tooltip("Enable Solar Engine MMP attribution. Defines GAMELYFT_SOLAR_ENGINE. When ON, the SDK polls Solar Engine for attribution data after init and fires a one-shot 'mmp_install' Firebase event with the mapped fields. Requires Solar Engine Unity SDK in the project.")]
+        public bool enableSolarEngineMmp = false;
+
         [Tooltip("When ON, SDK integration warnings appear as an on-screen IMGUI panel in addition to the console. When OFF, warnings go only to the console.")]
         public bool testMode = false;
 
