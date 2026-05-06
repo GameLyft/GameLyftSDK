@@ -1,0 +1,20 @@
+{
+  "name": "com.gamelyft.sdk",
+  "version": "1.0.0",
+  "displayName": "GameLyft SDK",
+  "description": "Slim Firebase-only analytics with persistent event queueing, FTUE / level / ad-fill tracking, impression-level revenue reporting for AdMob and AppLovin MAX, and one-shot install attribution from Solar Engine, AppsFlyer, Adjust, Singular, and Tenjin.",
+  "unity": "2022.3",
+  "author": {
+    "name": "GameLyft",
+    "url": "https://github.com/GameLyft"
+  },
+  "license": "MIT",
+  "keywords": [
+    "analytics",
+    "firebase",
+    "mmp",
+    "attribution",
+    "admob",
+    "applovin"
+  ]
+}
