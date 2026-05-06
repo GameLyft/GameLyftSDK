@@ -10,7 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Initial release.
 - Firebase-only analytics core with persistent PlayerPrefs-backed event queue.
-- `TrackEvent`, `TrackFTUE`, `TrackLevelProgression`, `TrackAdFill` APIs.
+- `TrackEvent`, `TrackFTUE`, `TrackLevelProgression`, `TrackAdFill`, `TrackPurchase` APIs.
+- `gl_purchase` Firebase event for in-app purchases (productId / currency / value / success / optional product_name).
 - Auto-deduplication for level progression events.
 - Auto Initialize option that polls for Firebase readiness.
 - Test Mode with on-screen IMGUI warning overlay.

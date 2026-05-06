@@ -362,6 +362,39 @@ namespace GameLyft.Sdk
             PlayerPrefs.SetString(dedupeKey, "true");
         }
 
+        /// <summary>
+        /// Track a successful in-app purchase. Fires the 'gl_purchase' Firebase event.
+        /// Call from your IAP callback AFTER the receipt has been validated. The SDK
+        /// does not validate receipts itself.
+        /// </summary>
+        /// <param name="productId">SKU / product identifier from the store, e.g. "com.studio.game.coins_pack_small".</param>
+        /// <param name="currency">ISO 4217 currency code, e.g. "USD". Falls back to "USD" if null/empty.</param>
+        /// <param name="revenue">Revenue amount in the specified currency (the localized price the user paid).</param>
+        /// <param name="productName">Optional human-readable product name. Omitted from the event if null/empty.</param>
+        public static void TrackPurchase(
+            string productId,
+            string currency,
+            double revenue,
+            string productName = null)
+        {
+            if (string.IsNullOrEmpty(productId)) return;
+
+            EnsureDispatcher();
+
+            var parameters = new List<EventDispatcher.QueuedParameter>
+            {
+                EventDispatcher.StringParam("product_id", productId),
+                EventDispatcher.StringParam("currency", string.IsNullOrEmpty(currency) ? "USD" : currency),
+                EventDispatcher.DoubleParam("value", revenue),
+                EventDispatcher.LongParam("success", 1),
+            };
+
+            if (!string.IsNullOrEmpty(productName))
+                parameters.Add(EventDispatcher.StringParam("product_name", productName));
+
+            EventDispatcher.Instance.LogEvent("gl_purchase", parameters);
+        }
+
         private static void EnsureDispatcher()
         {
             // Allow events queued before Initialize() — they'll drain once Initialize() flips the flag.

@@ -2,7 +2,7 @@ GameLyft SDK — Slim Analytics
 ==============================
 
 A small Firebase-only analytics layer with persistent event queueing,
-FTUE / level progression / ad-fill tracking, impression-level revenue
+FTUE / level progression / ad-fill / IAP tracking, impression-level revenue
 reporting for AdMob and AppLovin MAX, and one-shot install attribution
 ('mmp_install') from Solar Engine, AppsFlyer, Adjust, Singular, and Tenjin.
 
@@ -137,6 +137,13 @@ else
 {
     GameLyftAnalytics.TrackAdFill(GLAdFormat.Interstitial, "level_complete", GLAdResult.NotAvailable);
 }
+
+// In-app purchase — call after the receipt has been validated. Fires 'gl_purchase'.
+GameLyftAnalytics.TrackPurchase(
+    productId: product.definition.id,
+    currency:  product.metadata.isoCurrencyCode,
+    revenue:   (double)product.metadata.localizedPrice,
+    productName: "Coin Pack — Small");  // optional
 
 // Session count (auto-attached to every event as 'session' param at flush time)
 int n = GameLyftAnalytics.SessionCount;
@@ -382,6 +389,7 @@ namespace GameLyft.Sdk
         public static void TrackFTUE(int stepNumber, string stepName, FTUEState state);
         public static void TrackLevelProgression(int levelNumber, LevelState state, Dictionary<string, object> levelData = null);
         public static void TrackAdFill(GLAdFormat adFormat, string placement, GLAdResult result);
+        public static void TrackPurchase(string productId, string currency, double revenue, string productName = null);
 
         public sealed class AdRevenueSurface
         {
