@@ -1,10 +1,10 @@
 # GameLyft SDK
 
-Slim Firebase-only analytics for Unity. Persistent event queue, FTUE / level / ad-fill tracking, impression-level revenue reporting for AdMob and AppLovin MAX, and one-shot install attribution from Solar Engine, AppsFlyer, Adjust, Singular, and Tenjin.
+Slim Firebase-only analytics for Unity with persistent event queueing, ad revenue reporting, and MMP install attribution.
 
 ## Install
 
-### Unity Package Manager (recommended)
+### Unity Package Manager
 
 In Unity: **Window → Package Manager → + → Add package from git URL**, paste:
 
@@ -24,14 +24,7 @@ Download the latest `.unitypackage` from [Releases](https://github.com/GameLyft/
 
 ## Documentation
 
-See [Assets/GameLyftSDK/README.txt](Assets/GameLyftSDK/README.txt) for full integration docs, prerequisites, the public API reference, and per-MMP setup.
-
-## Prerequisites
-
-- **Firebase Unity SDK** (App + Analytics) — required.
-- **Optional**, depending on which integrations you enable: Google Mobile Ads, AppLovin MAX, Solar Engine, AppsFlyer, Adjust, Singular, Tenjin.
-
-GameLyft SDK does not install these for you. Toggle integrations in **Tools → GameLyft → Settings**; matching `GAMELYFT_*` scripting defines are written automatically.
+Full documentation will be published at gamelyft.com. For now, see the in-package [README](Assets/GameLyftSDK/README.txt).
 
 ## License
 
