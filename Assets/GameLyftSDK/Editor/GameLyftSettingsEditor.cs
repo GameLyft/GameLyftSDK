@@ -51,25 +51,37 @@ namespace GameLyft.Sdk.EditorTools
             DefineSymbolManager.SetDefine(TENJIN_DEFINE, _enableTenjinMmp.boolValue);
         }
 
-        // Reconcile on every editor reload, even when the inspector never opens.
-        // Catches drift introduced by source control, package re-imports, or
-        // anything that touches the .asset without going through the inspector.
-        // SetDefine is a no-op when the symbol is already in the desired state,
-        // so this won't trigger spurious recompile loops.
+        // Reconcile on every editor reload AND auto-create the settings asset on
+        // first install. Catches drift introduced by source control, package
+        // re-imports, or anything that touches the .asset without going through
+        // the inspector. SetDefine is a no-op when the symbol is already in the
+        // desired state, so this won't trigger spurious recompile loops.
+        //
+        // Why delayCall: AssetDatabase.CreateAsset directly inside an
+        // InitializeOnLoadMethod can race with Unity's own asset import phase
+        // (especially right after a UPM package import). Deferring one editor
+        // frame lets Unity become idle before we write.
         [InitializeOnLoadMethod]
         private static void ReconcileDefinesOnLoad()
         {
-            var settings = AssetDatabase.LoadAssetAtPath<GameLyftSettings>(
-                GameLyftSettings.DEFAULT_ASSET_PATH);
-            if (settings == null) return;
+            EditorApplication.delayCall += () =>
+            {
+                // LoadOrCreate auto-creates the asset if missing — first run after
+                // a fresh install gets a brand-new asset with all bool fields
+                // defaulting to false (per the public field defaults in
+                // GameLyftSettings.cs). Consumers don't have to manually open
+                // Tools → GameLyft → Settings to get a baseline asset.
+                var settings = LoadOrCreate();
+                if (settings == null) return;
 
-            DefineSymbolManager.SetDefine(ADMOB_DEFINE, settings.useAdMobMediation);
-            DefineSymbolManager.SetDefine(APPLOVIN_DEFINE, settings.useAppLovinMax);
-            DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, settings.enableSolarEngineMmp);
-            DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, settings.enableAppsFlyerMmp);
-            DefineSymbolManager.SetDefine(ADJUST_DEFINE, settings.enableAdjustMmp);
-            DefineSymbolManager.SetDefine(SINGULAR_DEFINE, settings.enableSingularMmp);
-            DefineSymbolManager.SetDefine(TENJIN_DEFINE, settings.enableTenjinMmp);
+                DefineSymbolManager.SetDefine(ADMOB_DEFINE, settings.useAdMobMediation);
+                DefineSymbolManager.SetDefine(APPLOVIN_DEFINE, settings.useAppLovinMax);
+                DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, settings.enableSolarEngineMmp);
+                DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, settings.enableAppsFlyerMmp);
+                DefineSymbolManager.SetDefine(ADJUST_DEFINE, settings.enableAdjustMmp);
+                DefineSymbolManager.SetDefine(SINGULAR_DEFINE, settings.enableSingularMmp);
+                DefineSymbolManager.SetDefine(TENJIN_DEFINE, settings.enableTenjinMmp);
+            };
         }
 
         public override void OnInspectorGUI()
