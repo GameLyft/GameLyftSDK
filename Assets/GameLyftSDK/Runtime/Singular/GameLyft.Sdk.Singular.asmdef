@@ -1,0 +1,19 @@
+{
+    "name": "GameLyft.Sdk.Singular",
+    "rootNamespace": "GameLyft.Sdk",
+    "references": [
+        "GameLyft.Sdk",
+        "SingularSDK"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "GAMELYFT_SINGULAR"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

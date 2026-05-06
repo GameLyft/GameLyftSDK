@@ -104,6 +104,25 @@ namespace GameLyft.Sdk
                 yield break;
             }
 
+            // DIAGNOSTIC: AdjustAttribution is a typed object (not a dict), so we manually
+            // flatten its fields for the schema-discovery event. Remove this block once
+            // the production payload shape has been verified across Adjust SDK versions.
+            var schemaDump = new Dictionary<string, object>
+            {
+                { "tracker_token",       _latestAttribution.TrackerToken },
+                { "tracker_name",        _latestAttribution.TrackerName },
+                { "network",             _latestAttribution.Network },
+                { "campaign",            _latestAttribution.Campaign },
+                { "adgroup",             _latestAttribution.Adgroup },
+                { "creative",            _latestAttribution.Creative },
+                { "click_label",         _latestAttribution.ClickLabel },
+                { "cost_type",           _latestAttribution.CostType },
+                { "cost_amount",         _latestAttribution.CostAmount },
+                { "cost_currency",       _latestAttribution.CostCurrency },
+                { "fb_install_referrer", _latestAttribution.FbInstallReferrer },
+            };
+            GameLyftAnalytics.Mmp.LogAttributionSchema("adjust_attribution", schemaDump);
+
             // Map AdjustAttribution → standard MMP schema.
             //   Network  → source   (acquisition channel — null/empty falls back to "Organic" in MmpSurface)
             //   Campaign → campaign

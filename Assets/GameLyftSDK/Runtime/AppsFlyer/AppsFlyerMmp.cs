@@ -69,6 +69,11 @@ namespace GameLyft.Sdk
         {
             if (conversionData == null) return;
 
+            // DIAGNOSTIC: emit the full raw payload as a Firebase event so the actual
+            // AppsFlyer schema can be verified from production data via BigQuery. Remove
+            // once the field mapping below has been confirmed against real conversion data.
+            GameLyftAnalytics.Mmp.LogAttributionSchema("appsflyer_attribution", conversionData);
+
             // AppsFlyer field names per their conversion-data docs:
             //   media_source — acquisition channel ("" or missing for organic)
             //   campaign     — campaign name

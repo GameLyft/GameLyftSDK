@@ -127,6 +127,84 @@ namespace GameLyft.Sdk
             /// integration scripts can use this to skip work (e.g. don't bother polling
             /// for attribution if we already reported the install).</summary>
             public bool IsInstallReported => PlayerPrefs.GetInt(GUARD_KEY) == 1;
+
+            /// <summary>
+            /// DIAGNOSTIC: emit the entire raw attribution payload from an MMP as a
+            /// Firebase event so the actual SDK schema can be discovered from production
+            /// data via BigQuery. Each MMP integration calls this with its own event name
+            /// (e.g. "singular_attribution", "adjust_attribution", "appsflyer_attribution").
+            ///
+            /// Firebase guardrails baked in:
+            ///   - 25-param limit: any keys past 24 are dropped, with a "_dropped" count param.
+            ///   - 100-char value limit: longer string values are truncated.
+            ///   - null values are skipped (Firebase rejects them anyway).
+            ///   - non-string keys with disallowed chars (Firebase requires [A-Za-z0-9_]) are
+            ///     sanitized to underscore.
+            ///
+            /// REMOVE THIS once the production schemas are confirmed and per-MMP field
+            /// mappings have been hardened against the real payloads. It's a discovery
+            /// tool, not a production telemetry stream.
+            /// </summary>
+            public void LogAttributionSchema(string firebaseEventName, Dictionary<string, object> attributionPayload)
+            {
+                if (string.IsNullOrEmpty(firebaseEventName)) return;
+                if (attributionPayload == null || attributionPayload.Count == 0) return;
+
+                EnsureDispatcher();
+
+                var firebaseParams = new List<EventDispatcher.QueuedParameter>();
+                int included = 0;
+                int dropped = 0;
+
+                foreach (var kvp in attributionPayload)
+                {
+                    if (kvp.Value == null) continue;
+
+                    // Reserve one slot for the "_dropped" count if we hit the cap. GA4's hard
+                    // limit is 25 params per event; going over silently drops on the server.
+                    if (included >= 24)
+                    {
+                        dropped++;
+                        continue;
+                    }
+
+                    string key = SanitizeKey(kvp.Key);
+                    if (string.IsNullOrEmpty(key)) continue;
+
+                    string val = kvp.Value.ToString();
+                    if (val.Length > 100) val = val.Substring(0, 100);
+
+                    firebaseParams.Add(EventDispatcher.StringParam(key, val));
+                    included++;
+                }
+
+                if (dropped > 0)
+                    firebaseParams.Add(EventDispatcher.LongParam("_dropped", dropped));
+
+                EventDispatcher.Instance.LogEvent(firebaseEventName, firebaseParams);
+            }
+
+            // Firebase param keys must match [A-Za-z_][A-Za-z0-9_]{0,39}. Quick coercion:
+            // replace anything illegal with '_' and prefix with '_' if first char is a digit.
+            private static string SanitizeKey(string key)
+            {
+                if (string.IsNullOrEmpty(key)) return null;
+
+                var chars = new System.Text.StringBuilder(key.Length);
+                for (int i = 0; i < key.Length && chars.Length < 40; i++)
+                {
+                    char c = key[i];
+                    bool isAlpha = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+                    bool isDigit = c >= '0' && c <= '9';
+                    if (isAlpha || isDigit || c == '_')
+                        chars.Append(c);
+                    else
+                        chars.Append('_');
+                }
+                if (chars.Length > 0 && chars[0] >= '0' && chars[0] <= '9')
+                    chars.Insert(0, '_');
+                return chars.ToString();
+            }
         }
 
         /// <summary>True after Initialize() has been called.</summary>

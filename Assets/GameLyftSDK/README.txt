@@ -4,7 +4,7 @@ GameLyft SDK — Slim Analytics
 A small Firebase-only analytics layer with persistent event queueing,
 FTUE / level progression / ad-fill tracking, impression-level revenue
 reporting for AdMob and AppLovin MAX, and one-shot install attribution
-('mmp_install') from Solar Engine, AppsFlyer, and Adjust.
+('mmp_install') from Solar Engine, AppsFlyer, Adjust, Singular, and Tenjin.
 
 Sends events EXCLUSIVELY to Firebase Analytics. Does not touch any
 other SDK except to read attribution data from MMPs you opt into.
@@ -42,9 +42,17 @@ OPTIONAL (only if you want the corresponding integration):
     Required when GAMELYFT_ADJUST is defined.
     https://dev.adjust.com/en/sdk/unity/
 
+  - Singular Unity SDK
+    Required when GAMELYFT_SINGULAR is defined.
+    https://support.singular.net/hc/en-us/articles/360037635452-Unity-SDK-Integration-Guide
+
+  - Tenjin Unity SDK
+    Required when GAMELYFT_TENJIN is defined.
+    https://github.com/tenjin/tenjin-unity-sdk
+
 If you enable a toggle in Settings but haven't imported the matching
-SDK, the corresponding sub-assembly will fail to compile. Disable the
-toggle to drop the dependency.
+SDK, the corresponding integration code will fail to compile. Disable
+the toggle to drop the dependency.
 
 You must call Firebase.FirebaseApp.CheckAndFixDependenciesAsync()
 yourself (either manually, or let Auto Initialize wait for it).
@@ -66,9 +74,11 @@ SETUP
    - Solar Engine MMP        (writes GAMELYFT_SOLAR_ENGINE)
    - AppsFlyer MMP           (writes GAMELYFT_APPSFLYER)
    - Adjust MMP              (writes GAMELYFT_ADJUST)
+   - Singular MMP            (writes GAMELYFT_SINGULAR)
+   - Tenjin MMP              (writes GAMELYFT_TENJIN)
 
-   Each toggle defines its scripting symbol so the matching sub-assembly
-   compiles in. Toggle off → assembly excluded → no SDK dependency.
+   Each toggle defines its scripting symbol so the matching integration
+   code compiles in. Toggle off → code excluded → no SDK dependency.
 
 3. Pick ONE of these two initialization styles:
 
@@ -87,8 +97,8 @@ SETUP
                GameLyft.Sdk.GameLyftAnalytics.Initialize();
        });
 
-   Both can coexist — Initialize() is idempotent. If both fire, the second
-   silently returns. Safe to have auto-init on AND keep your manual call.
+   Both can coexist — Initialize() is idempotent. If both fire, the
+   second silently returns.
 
 ------------------------------------------------------------
 USAGE — EVENTS
@@ -181,41 +191,52 @@ MMP delivers attribution first wins; the rest no-op.
 
   -- SOLAR ENGINE: zero-config --------------------------------------
 
-  Tick the Solar Engine MMP toggle in Settings. That's it. The SDK
-  starts a polling coroutine at app launch that waits for Solar Engine
-  to come up (probed via the SE Analytics singleton), then polls
-  getAttribution() every 2s up to a 3-minute budget. On non-null
-  attribution, fields are mapped:
+  Tick the Solar Engine MMP toggle. The SDK polls for the SE Analytics
+  singleton, then calls getAttribution() every 2s within a 3-minute
+  budget. On non-null attribution, fields are mapped:
 
     channel_name     → source
     adgroup_name     → campaign
     adplan_name      → ad_set
     adcreative_name  → creative
 
-  No code changes required.
-
   -- ADJUST: zero-config --------------------------------------------
 
-  Tick the Adjust MMP toggle in Settings. Same shape as Solar Engine —
-  the SDK waits for the AdjustSdk.Adjust MonoBehaviour to appear (signals
-  Adjust.InitSdk has been called by the consumer), then polls
-  Adjust.GetAttribution() every 2s within the 3-minute budget. On the
-  first non-null AdjustAttribution, fields are mapped:
+  Tick the Adjust MMP toggle. The SDK polls for the AdjustSdk.Adjust
+  singleton, then calls Adjust.GetAttribution() every 2s within the
+  3-minute budget. On the first non-null AdjustAttribution:
 
     Network   → source
     Campaign  → campaign
     Adgroup   → ad_set
     Creative  → creative
 
-  No code changes required.
+  Caveat: Adjust.GetAttribution short-circuits to a no-op in Unity
+  Editor by Adjust SDK design. Test on device for real attribution.
 
-  Caveat: Adjust.GetAttribution short-circuits to a no-op in Unity Editor
-  by design (Adjust SDK behavior). Test on device for real attribution.
+  -- TENJIN: zero-config --------------------------------------------
+
+  Tick the Tenjin MMP toggle. The SDK observes the BaseTenjin singleton
+  your existing Tenjin.getInstance(apiKey) call creates, then invokes
+  GetAttributionInfo() within the 3-minute budget. On the first
+  populated callback:
+
+    ad_network     → source     (with "(not set)" → null → falls back
+                                  to "Organic" via the surface default)
+    campaign_name  → campaign
+    (no equivalent) → ad_set    (Tenjin has no first-class adgroup)
+    creative_name  → creative
+
+  Schema is documented by Tenjin so the mapping is authoritative.
+  Requires that you call Tenjin.getInstance(apiKey) somewhere in your
+  app (which you do as part of normal Tenjin integration). If Tenjin
+  init is delayed past ~3 minutes of foreground time, this session is
+  skipped — the next session retries.
 
   -- APPSFLYER: one-line consumer hookup ----------------------------
 
-  Tick the AppsFlyer MMP toggle in Settings, then add ONE line to your
-  existing IAppsFlyerConversionData handler:
+  Tick the AppsFlyer MMP toggle, then add ONE line to your existing
+  IAppsFlyerConversionData handler:
 
       using AppsFlyerSDK;
       using GameLyft.Sdk;
@@ -234,23 +255,45 @@ MMP delivers attribution first wins; the rest no-op.
           public void onAppOpenAttributionFailure(string error) { /* ... */ }
       }
 
-  AppsFlyer field mapping:
+  Field mapping:
 
     media_source  → source
     campaign      → campaign
     adset         → ad_set
     af_ad         → creative
 
-  Why one line instead of zero: AppsFlyer routes conversion data to a
-  single GameObject name registered in initSDK(). We can't reliably
-  hijack that route across SDK versions — letting your existing handler
-  forward the payload to us is robust on every platform.
-
   HandleConversionData() also has an overload taking the parsed
-  Dictionary<string, object> if you've already converted with
-  AppsFlyer.CallbackStringToDictionary upstream — no need to re-serialize.
+  Dictionary<string, object> if you've already called
+  AppsFlyer.CallbackStringToDictionary upstream.
 
-  -- OTHER MMPS (Adjust / Singular / Tenjin / ...) ------------------
+  -- SINGULAR: zero-config (with caveats) ---------------------------
+
+  Tick the Singular MMP toggle. The SDK auto-registers a
+  SingularDeviceAttributionCallbackHandler at app launch.
+
+  IMPORTANT: SingularSDK.SetSingularDeviceAttributionCallbackHandler
+  is single-slot. Enabling Singular MMP REPLACES any handler your
+  project already registered. Move that handler's logic into the
+  diagnostic event below or fork SingularMmp.cs if you need it.
+
+  Field mapping is BEST-GUESS — Singular's on-device callback schema
+  is not publicly documented. Keys below are based on Singular's REST
+  Attribution API:
+
+    network         → source
+    campaign_name   → campaign
+    (no equivalent) → ad_set     (no first-class adgroup on device side)
+    creative_name   → creative
+
+  Verify against the singular_attribution diagnostic event after the
+  first production install and update the mapping in SingularMmp.cs
+  if needed.
+
+  Caveat: on iOS with ATT denied, Singular's deviceAttributionCallback
+  often does not fire (SKAN-only flow). For iOS attribution coverage
+  AppsFlyer or Adjust tend to be more reliable client-side.
+
+  -- OTHER MMPS (Branch, Kochava, ...) ------------------------------
 
   Same pattern as AppsFlyer — extract source / campaign / ad_set /
   creative from your MMP's attribution payload and call directly:
@@ -258,6 +301,26 @@ MMP delivers attribution first wins; the rest no-op.
       GameLyftAnalytics.Mmp.LogInstall(source, campaign, adSet, creative);
 
   The shared one-shot guard handles dedup automatically.
+
+  -- DIAGNOSTIC EVENTS (TEMPORARY) ----------------------------------
+
+  Singular, AppsFlyer, Adjust, and Tenjin each emit an additional
+  diagnostic Firebase event alongside 'mmp_install' so the actual
+  schema can be confirmed via BigQuery:
+
+    singular_attribution    — full raw Singular payload
+    appsflyer_attribution   — full raw AppsFlyer conversionData payload
+    adjust_attribution      — flattened AdjustAttribution fields
+    tenjin_attribution      — full raw Tenjin attributionInfoData payload
+
+  Each event flattens its native attribution payload into Firebase
+  parameters with GA4 limits enforced (capped at 24 keys + 1 "_dropped"
+  count, value truncation at 100 chars, key sanitization). Once you've
+  confirmed the keys in production, harden the field mappings in the
+  per-MMP scripts and remove the LogAttributionSchema() calls.
+
+  Solar Engine isn't included because its schema was confirmed when
+  the integration was built.
 
 ------------------------------------------------------------
 NOTES
@@ -273,8 +336,8 @@ NOTES
   events queued before Initialize() (or carried over from a prior run)
   report the live session count rather than a stale 0.
 - 'mmp_install' is one-shot per device install via PlayerPrefs guard
-  (key: GLSdk_mmp_install_sent). To force re-fire during testing, clear
-  PlayerPrefs or delete that specific key.
+  (key: GLSdk_mmp_install_sent). To force re-fire during testing,
+  clear PlayerPrefs or delete that specific key.
 
 ------------------------------------------------------------
 TEST MODE
@@ -283,13 +346,12 @@ TEST MODE
 Tools → GameLyft → Settings has a "Test Mode" toggle.
 
 When OFF (default, use for production):
-  - SDK integration warnings go to Debug.LogWarning (Unity console / logcat).
+  - SDK integration warnings go to Debug.LogWarning only.
 
 When ON (use during integration / QA):
   - Warnings ALSO appear as a stacked on-screen IMGUI panel in the
     top-left corner. Each warning has an × close button. A "Clear All"
     button drops the whole stack.
-  - Console output is unchanged from OFF — overlay is additive.
 
 Warnings are fired for:
   - TrackEvent/Track* called before Initialize()
@@ -299,8 +361,7 @@ Warnings are fired for:
   - Any event with more than 25 parameters (GA4 server-side limit)
   - Auto Initialize timed out waiting for Firebase (5 min)
 
-Remember to turn Test Mode OFF before shipping — the overlay is a
-developer tool, not a production feature.
+Turn Test Mode OFF before shipping — the overlay is a developer tool.
 
 ------------------------------------------------------------
 PUBLIC API
@@ -338,6 +399,13 @@ namespace GameLyft.Sdk
 
             // True if 'mmp_install' has already been fired on this device.
             public bool IsInstallReported { get; }
+
+            // Diagnostic — emit a raw attribution payload as a Firebase event for
+            // schema discovery via BigQuery. Used internally by the per-MMP
+            // integrations (singular_attribution, appsflyer_attribution,
+            // adjust_attribution, tenjin_attribution events). Public so consumers
+            // can capture an unmodeled MMP's schema the same way.
+            public void LogAttributionSchema(string firebaseEventName, Dictionary<string, object> attributionPayload);
         }
     }
 

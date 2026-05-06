@@ -27,6 +27,12 @@ namespace GameLyft.Sdk
         [Tooltip("Enable Adjust MMP attribution. Defines GAMELYFT_ADJUST. When ON, the SDK polls Adjust.GetAttribution() after init and fires a one-shot 'mmp_install' Firebase event mapped from Network/Campaign/Adgroup/Creative. Requires Adjust Unity SDK in the project.")]
         public bool enableAdjustMmp = false;
 
+        [Tooltip("Enable Singular MMP attribution. Defines GAMELYFT_SINGULAR. When ON, the SDK auto-registers a SingularDeviceAttributionCallbackHandler and fires a one-shot 'mmp_install' Firebase event mapped with best-guess keys (network/campaign_name/creative_name — Singular's device callback schema isn't publicly documented). Also emits a 'singular_attribution' diagnostic event with the full raw payload so the real schema can be confirmed from BigQuery. Requires Singular Unity SDK in the project.")]
+        public bool enableSingularMmp = false;
+
+        [Tooltip("Enable Tenjin MMP attribution. Defines GAMELYFT_TENJIN. When ON, the SDK observes the consumer's existing BaseTenjin instance and polls GetAttributionInfo() to fire a one-shot 'mmp_install' Firebase event mapped from ad_network/campaign_name/creative_name (the documented Tenjin schema). Also emits a 'tenjin_attribution' diagnostic event with the full payload. Requires Tenjin Unity SDK in the project AND that the consumer initializes Tenjin themselves via Tenjin.getInstance(apiKey) within ~3 minutes of app launch.")]
+        public bool enableTenjinMmp = false;
+
         [Tooltip("When ON, SDK integration warnings appear as an on-screen IMGUI panel in addition to the console. When OFF, warnings go only to the console.")]
         public bool testMode = false;
 

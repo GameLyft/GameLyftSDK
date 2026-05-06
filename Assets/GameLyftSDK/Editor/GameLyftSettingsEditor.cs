@@ -12,12 +12,16 @@ namespace GameLyft.Sdk.EditorTools
         private const string SOLAR_ENGINE_DEFINE = "GAMELYFT_SOLAR_ENGINE";
         private const string APPSFLYER_DEFINE = "GAMELYFT_APPSFLYER";
         private const string ADJUST_DEFINE = "GAMELYFT_ADJUST";
+        private const string SINGULAR_DEFINE = "GAMELYFT_SINGULAR";
+        private const string TENJIN_DEFINE = "GAMELYFT_TENJIN";
 
         private SerializedProperty _useAdMob;
         private SerializedProperty _useAppLovin;
         private SerializedProperty _enableSolarEngineMmp;
         private SerializedProperty _enableAppsFlyerMmp;
         private SerializedProperty _enableAdjustMmp;
+        private SerializedProperty _enableSingularMmp;
+        private SerializedProperty _enableTenjinMmp;
         private SerializedProperty _testMode;
         private SerializedProperty _autoInitialize;
 
@@ -28,6 +32,8 @@ namespace GameLyft.Sdk.EditorTools
             _enableSolarEngineMmp = serializedObject.FindProperty("enableSolarEngineMmp");
             _enableAppsFlyerMmp = serializedObject.FindProperty("enableAppsFlyerMmp");
             _enableAdjustMmp = serializedObject.FindProperty("enableAdjustMmp");
+            _enableSingularMmp = serializedObject.FindProperty("enableSingularMmp");
+            _enableTenjinMmp = serializedObject.FindProperty("enableTenjinMmp");
             _testMode = serializedObject.FindProperty("testMode");
             _autoInitialize = serializedObject.FindProperty("autoInitialize");
 
@@ -41,6 +47,8 @@ namespace GameLyft.Sdk.EditorTools
             DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, _enableSolarEngineMmp.boolValue);
             DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, _enableAppsFlyerMmp.boolValue);
             DefineSymbolManager.SetDefine(ADJUST_DEFINE, _enableAdjustMmp.boolValue);
+            DefineSymbolManager.SetDefine(SINGULAR_DEFINE, _enableSingularMmp.boolValue);
+            DefineSymbolManager.SetDefine(TENJIN_DEFINE, _enableTenjinMmp.boolValue);
         }
 
         // Reconcile on every editor reload, even when the inspector never opens.
@@ -60,6 +68,8 @@ namespace GameLyft.Sdk.EditorTools
             DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, settings.enableSolarEngineMmp);
             DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, settings.enableAppsFlyerMmp);
             DefineSymbolManager.SetDefine(ADJUST_DEFINE, settings.enableAdjustMmp);
+            DefineSymbolManager.SetDefine(SINGULAR_DEFINE, settings.enableSingularMmp);
+            DefineSymbolManager.SetDefine(TENJIN_DEFINE, settings.enableTenjinMmp);
         }
 
         public override void OnInspectorGUI()
@@ -127,6 +137,22 @@ namespace GameLyft.Sdk.EditorTools
                 DefineSymbolManager.SetDefine(ADJUST_DEFINE, adjustMmp);
             }
 
+            EditorGUI.BeginChangeCheck();
+            bool singularMmp = EditorGUILayout.ToggleLeft("Singular MMP", _enableSingularMmp.boolValue);
+            if (EditorGUI.EndChangeCheck())
+            {
+                _enableSingularMmp.boolValue = singularMmp;
+                DefineSymbolManager.SetDefine(SINGULAR_DEFINE, singularMmp);
+            }
+
+            EditorGUI.BeginChangeCheck();
+            bool tenjinMmp = EditorGUILayout.ToggleLeft("Tenjin MMP", _enableTenjinMmp.boolValue);
+            if (EditorGUI.EndChangeCheck())
+            {
+                _enableTenjinMmp.boolValue = tenjinMmp;
+                DefineSymbolManager.SetDefine(TENJIN_DEFINE, tenjinMmp);
+            }
+
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Initialization", EditorStyles.miniBoldLabel);
             EditorGUILayout.HelpBox(
@@ -156,6 +182,8 @@ namespace GameLyft.Sdk.EditorTools
             EditorGUILayout.LabelField("GAMELYFT_SOLAR_ENGINE:", DefineSymbolManager.HasDefine(SOLAR_ENGINE_DEFINE) ? "ON" : "off");
             EditorGUILayout.LabelField("GAMELYFT_APPSFLYER:", DefineSymbolManager.HasDefine(APPSFLYER_DEFINE) ? "ON" : "off");
             EditorGUILayout.LabelField("GAMELYFT_ADJUST:", DefineSymbolManager.HasDefine(ADJUST_DEFINE) ? "ON" : "off");
+            EditorGUILayout.LabelField("GAMELYFT_SINGULAR:", DefineSymbolManager.HasDefine(SINGULAR_DEFINE) ? "ON" : "off");
+            EditorGUILayout.LabelField("GAMELYFT_TENJIN:", DefineSymbolManager.HasDefine(TENJIN_DEFINE) ? "ON" : "off");
 
             serializedObject.ApplyModifiedProperties();
         }
