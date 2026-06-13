@@ -76,6 +76,7 @@ namespace GameLyft.Sdk
             DontDestroyOnLoad(go);
             go.hideFlags = HideFlags.HideInHierarchy;
             go.AddComponent<AppsFlyerMmp>();
+            GLLog.Trace("AppsFlyerMmp enabled — polling PlayerPrefs for AppsFlyer conversion data (mmp_install pending).");
         }
 
         private void Start()
@@ -101,6 +102,8 @@ namespace GameLyft.Sdk
                 // Timed out — AppsFlyer never delivered conversion data this session (or the
                 // consumer's handler isn't writing PlayerPrefs). No event fired, guard stays
                 // unset so a future session can retry.
+                GLLog.Trace("AppsFlyerMmp timed out after " + TIMEOUT_SECONDS
+                    + "s — no AppsFlyer conversion data in PlayerPrefs this session.");
                 Destroy(gameObject);
                 yield break;
             }
@@ -112,6 +115,7 @@ namespace GameLyft.Sdk
                 yield break;
             }
 
+            GLLog.Trace("AppsFlyerMmp: conversion data found in PlayerPrefs — mapping to mmp_install.");
             HandleConversionData(raw);
             Destroy(gameObject);
         }

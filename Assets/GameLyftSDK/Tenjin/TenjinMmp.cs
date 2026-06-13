@@ -66,6 +66,7 @@ namespace GameLyft.Sdk
             DontDestroyOnLoad(go);
             go.hideFlags = HideFlags.HideInHierarchy;
             go.AddComponent<TenjinMmp>();
+            GLLog.Trace("TenjinMmp enabled — waiting for Tenjin instance + attribution (mmp_install pending).");
         }
 
         private void Start()
@@ -92,9 +93,13 @@ namespace GameLyft.Sdk
             {
                 // Tenjin was never initialized within the budget. Bail without firing;
                 // PlayerPrefs guard stays unset so a future session can retry.
+                GLLog.Trace("TenjinMmp: Tenjin instance not found within " + TIMEOUT_SECONDS
+                    + "s — bailing (did you call Tenjin.getInstance(apiKey)?).");
                 Destroy(gameObject);
                 yield break;
             }
+
+            GLLog.Trace("TenjinMmp: Tenjin instance found — querying GetAttributionInfo.");
 
             // Phase 2: query Tenjin for attribution. Tenjin's GetAttributionInfo
             // dispatches the callback asynchronously (Java/native bridge call on
@@ -118,6 +123,7 @@ namespace GameLyft.Sdk
 
             if (!callbackFired || attribution == null || attribution.Count == 0)
             {
+                GLLog.Trace("TenjinMmp: timed out — Tenjin delivered no attribution this session.");
                 Destroy(gameObject);
                 yield break;
             }

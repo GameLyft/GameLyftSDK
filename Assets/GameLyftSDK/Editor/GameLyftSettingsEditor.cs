@@ -21,7 +21,7 @@ namespace GameLyft.Sdk.EditorTools
         // Staged (un-applied) toggle state. Plain bools — NOT a live SerializedObject —
         // so edits survive repaints and only commit on Apply.
         private bool _admob, _applovin, _solar, _appsflyer, _adjust, _singular, _tenjin;
-        private bool _testMode, _autoInit;
+        private bool _testMode, _autoInit, _verboseLogging;
 
         // AppsFlyer conversion-handler wiring (cached scan + last action log). NOT staged —
         // the Wire/Unwire buttons edit the handler .cs immediately.
@@ -53,6 +53,7 @@ namespace GameLyft.Sdk.EditorTools
             _tenjin = _s.enableTenjinMmp;
             _testMode = _s.testMode;
             _autoInit = _s.autoInitialize;
+            _verboseLogging = _s.verboseLogging;
         }
 
         // Reconcile on every editor reload AND auto-create the settings asset on first
@@ -137,10 +138,14 @@ namespace GameLyft.Sdk.EditorTools
             EditorGUILayout.LabelField("Debug", EditorStyles.miniBoldLabel);
             EditorGUILayout.HelpBox(
                 "Test Mode also shows SDK integration warnings on an on-screen panel. " +
-                "Turn OFF for production.",
+                "Verbose Logging prints detailed [GameLyft] console logs of ALL SDK activity " +
+                "(events, queue flush to Firebase, purchases, ad revenue, attribution). " +
+                "Turn both OFF for production.",
                 MessageType.None);
             _testMode = EditorGUILayout.ToggleLeft(
                 "Test Mode" + PendingSuffix(_testMode != _s.testMode), _testMode);
+            _verboseLogging = EditorGUILayout.ToggleLeft(
+                "Verbose Logging" + PendingSuffix(_verboseLogging != _s.verboseLogging), _verboseLogging);
 
             // ===== Apply / Revert =====
             EditorGUILayout.Space();
@@ -189,7 +194,8 @@ namespace GameLyft.Sdk.EditorTools
                 || _singular != _s.enableSingularMmp
                 || _tenjin != _s.enableTenjinMmp
                 || _testMode != _s.testMode
-                || _autoInit != _s.autoInitialize;
+                || _autoInit != _s.autoInitialize
+                || _verboseLogging != _s.verboseLogging;
         }
 
         // Toggle whose "(pending Apply)" suffix appears when the staged value differs
@@ -290,6 +296,7 @@ namespace GameLyft.Sdk.EditorTools
             _s.enableTenjinMmp = _tenjin;
             _s.testMode = _testMode;
             _s.autoInitialize = _autoInit;
+            _s.verboseLogging = _verboseLogging;
 
             EditorUtility.SetDirty(_s);
             AssetDatabase.SaveAssets();

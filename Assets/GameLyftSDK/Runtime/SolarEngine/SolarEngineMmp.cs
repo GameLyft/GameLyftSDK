@@ -43,6 +43,7 @@ namespace GameLyft.Sdk
             DontDestroyOnLoad(go);
             go.hideFlags = HideFlags.HideInHierarchy;
             go.AddComponent<SolarEngineMmp>();
+            GLLog.Trace("SolarEngineMmp enabled — polling Solar Engine attribution (mmp_install pending).");
         }
 
         private void Start()
@@ -78,6 +79,8 @@ namespace GameLyft.Sdk
                 // SE was never initialized within the timeout window — consumer probably
                 // forgot to call initSeSdk(). Bail without firing; guard stays unset so
                 // a future session can retry once they've fixed the integration.
+                GLLog.Trace("SolarEngineMmp: Solar Engine SDK not initialized within "
+                    + TIMEOUT_SECONDS + "s — bailing (did you call initSeSdk()?).");
                 Destroy(gameObject);
                 yield break;
             }
@@ -96,6 +99,7 @@ namespace GameLyft.Sdk
                 // Timed out — SE was up but never delivered attribution (no campaign data,
                 // server unreachable, organic install with no fingerprint match, etc.).
                 // No event fired, guard not set.
+                GLLog.Trace("SolarEngineMmp: timed out — Solar Engine delivered no attribution this session.");
                 Destroy(gameObject);
                 yield break;
             }

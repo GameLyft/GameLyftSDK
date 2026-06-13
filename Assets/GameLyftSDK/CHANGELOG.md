@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.3] - 2026-06-13
+
+### Added
+
+- **Verbose Logging** setting (*Tools → GameLyft → Settings → Debug*). When ON, the SDK prints detailed `[GameLyft]`-prefixed console logs of all activity: every event tracked (with parameters), queue enqueue + flush to Firebase (showing the exact params incl. injected `event_type`/`session`), level-progression dedupe skips, purchases (`gl_purchase`), ad-impression revenue (`gl_ad_impression`), MMP attribution lifecycle (poll start / found / timeout / `mmp_install` fired-or-skipped / `*_attribution` schema), persisted-queue restore, and send retries/persist errors. Backed by a new central `GLLog` logger: `Trace` is gated by the setting; lifecycle milestones (`Info`), warnings (`Warn`), and errors (`Error`) always log. Off by default — keep off in production (high volume).
+
 ## [1.0.2] - 2026-06-13
 
 ### Added

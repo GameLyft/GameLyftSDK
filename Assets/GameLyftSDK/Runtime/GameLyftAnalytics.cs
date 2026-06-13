@@ -21,7 +21,6 @@ namespace GameLyft.Sdk
         private const int GA4_MAX_PARAMS = 25;
 
         private static bool _isInitialized;
-        private static bool _testMode;
         internal static bool _autoInitPolling;
 
         /// <summary>
@@ -78,6 +77,7 @@ namespace GameLyft.Sdk
                     EventDispatcher.StringParam("platform", "gameLyft"),
                 };
 
+                GLLog.Trace("AdRevenue.Log gl_ad_impression " + DescribeParams(adParams));
                 EventDispatcher.Instance.LogEvent("gl_ad_impression", adParams);
             }
         }
@@ -105,7 +105,12 @@ namespace GameLyft.Sdk
             /// </summary>
             public void LogInstall(string source, string campaign, string adSet, string creative)
             {
-                if (PlayerPrefs.GetInt(GUARD_KEY) == 1) return;
+                if (PlayerPrefs.GetInt(GUARD_KEY) == 1)
+                {
+                    GLLog.Trace("Mmp.LogInstall skipped — mmp_install already reported on this "
+                        + "device (incoming source='" + (source ?? "") + "').");
+                    return;
+                }
 
                 EnsureDispatcher();
 
@@ -117,6 +122,7 @@ namespace GameLyft.Sdk
                     EventDispatcher.StringParam("creative", creative ?? ""),
                 };
 
+                GLLog.Trace("Mmp.LogInstall — firing mmp_install " + DescribeParams(parameters));
                 EventDispatcher.Instance.LogEvent("mmp_install", parameters);
 
                 PlayerPrefs.SetInt(GUARD_KEY, 1);
@@ -183,6 +189,8 @@ namespace GameLyft.Sdk
                 if (dropped > 0)
                     firebaseParams.Add(EventDispatcher.LongParam("_dropped", dropped));
 
+                GLLog.Trace("Mmp.LogAttributionSchema '" + firebaseEventName + "' — " + included
+                    + " keys" + (dropped > 0 ? ", " + dropped + " dropped" : "") + ".");
                 EventDispatcher.Instance.LogEvent(firebaseEventName, firebaseParams);
             }
 
@@ -229,9 +237,10 @@ namespace GameLyft.Sdk
             // Silent idempotent return — auto-init + manual Initialize() can both fire safely.
             if (_isInitialized) return;
 
-            // Load settings (test mode flag)
+            // Load settings and configure the logger (test mode + verbose logging flags).
             var settings = GameLyftSettings.LoadOrNull();
-            _testMode = settings != null && settings.testMode;
+            bool testMode = settings != null && settings.testMode;
+            GLLog.Configure(settings != null && settings.verboseLogging, testMode);
 
             // Sanity-check: is Firebase actually up? We can't reach out and verify,
             // but FirebaseApp.DefaultInstance will throw or be null if not initialized.
@@ -247,7 +256,8 @@ namespace GameLyft.Sdk
             EventDispatcher.CreateAndStart();
             _isInitialized = true;
             Info("Initialize() complete. Session " + SessionCount
-                + (_testMode ? " (TEST MODE)" : "") + ".");
+                + (testMode ? " (TEST MODE)" : "")
+                + (GLLog.IsVerbose ? " (VERBOSE LOGGING)" : "") + ".");
         }
 
         /// <summary>
@@ -300,6 +310,7 @@ namespace GameLyft.Sdk
                 }
             }
 
+            GLLog.Trace("TrackEvent '" + eventName + "' " + DescribeParams(firebaseParams));
             EventDispatcher.Instance.LogEvent(eventName, firebaseParams);
         }
 
@@ -337,7 +348,12 @@ namespace GameLyft.Sdk
         public static void TrackLevelProgression(int levelNumber, LevelState state, Dictionary<string, object> levelData = null)
         {
             string dedupeKey = "GLSdk_lvl_" + levelNumber + "_" + state;
-            if (PlayerPrefs.GetString(dedupeKey) == "true") return;
+            if (PlayerPrefs.GetString(dedupeKey) == "true")
+            {
+                GLLog.Trace("TrackLevelProgression skipped — level " + levelNumber + " '"
+                    + state + "' already reported (deduped).");
+                return;
+            }
 
             if (state == LevelState.level_complete)
                 TrackEvent("level_" + levelNumber + "_completed");
@@ -391,6 +407,7 @@ namespace GameLyft.Sdk
             if (!string.IsNullOrEmpty(productName))
                 parameters.Add(EventDispatcher.StringParam("product_name", productName));
 
+            GLLog.Trace("TrackPurchase gl_purchase " + DescribeParams(parameters));
             EventDispatcher.Instance.LogEvent("gl_purchase", parameters);
         }
 
@@ -401,25 +418,26 @@ namespace GameLyft.Sdk
                 EventDispatcher.CreateAndStart();
         }
 
-        /// <summary>
-        /// Internal warn helper. Always logs to the console. When testMode is ON
-        /// (via GameLyftSettings), also pushes the message to the on-screen overlay.
-        /// </summary>
-        internal static void Warn(string message)
-        {
-            Debug.LogWarning("[GameLyft] " + message);
-            if (_testMode)
-                GLDebugOverlay.Push(message);
-        }
+        /// <summary>Internal warn helper — routes to the central logger (always logs;
+        /// also mirrors to the Test Mode overlay). Kept for existing call sites.</summary>
+        internal static void Warn(string message) => GLLog.Warn(message);
 
-        /// <summary>
-        /// Internal info helper. Always logs to the console so device logcat picks it up.
-        /// Used for lifecycle milestones (auto-init polling, Initialize success) so
-        /// integrators can verify startup on-device without extra instrumentation.
-        /// </summary>
-        internal static void Info(string message)
+        /// <summary>Internal info helper — lifecycle milestones, always logged. Routes
+        /// to the central logger. Kept for existing call sites.</summary>
+        internal static void Info(string message) => GLLog.Info(message);
+
+        /// <summary>Compact "{ k=v, k2=v2 }" summary of queued params for verbose logging.</summary>
+        private static string DescribeParams(List<EventDispatcher.QueuedParameter> ps)
         {
-            Debug.Log("[GameLyft] " + message);
+            if (ps == null || ps.Count == 0) return "{ }";
+            var sb = new System.Text.StringBuilder("{ ");
+            for (int i = 0; i < ps.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append(ps[i].key).Append('=').Append(ps[i].value);
+            }
+            sb.Append(" }");
+            return sb.ToString();
         }
 
         /// <summary>

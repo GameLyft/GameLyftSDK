@@ -36,6 +36,9 @@ namespace GameLyft.Sdk
         [Tooltip("When ON, SDK integration warnings appear as an on-screen IMGUI panel in addition to the console. When OFF, warnings go only to the console.")]
         public bool testMode = false;
 
+        [Tooltip("Verbose logging: detailed [GameLyft] console logs of ALL SDK activity — every event tracked, queue enqueue + flush to Firebase (with parameters), purchases, ad-impression revenue, and MMP attribution polling. Lifecycle milestones, warnings, and errors always log regardless. Turn OFF for production (high volume).")]
+        public bool verboseLogging = false;
+
         [Tooltip("When ON, the SDK polls for Firebase initialization at app start and calls Initialize() automatically once Firebase is ready. No code changes required on your side.")]
         public bool autoInitialize = false;
 

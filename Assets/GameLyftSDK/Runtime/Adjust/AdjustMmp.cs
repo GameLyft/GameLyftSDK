@@ -53,6 +53,7 @@ namespace GameLyft.Sdk
             DontDestroyOnLoad(go);
             go.hideFlags = HideFlags.HideInHierarchy;
             go.AddComponent<AdjustMmp>();
+            GLLog.Trace("AdjustMmp enabled — waiting for Adjust SDK + attribution (mmp_install pending).");
         }
 
         private void Start()
@@ -78,6 +79,8 @@ namespace GameLyft.Sdk
                 // Adjust never came up within the timeout — consumer probably forgot to
                 // call Adjust.InitSdk(). Bail without firing; guard stays unset so a
                 // future session can retry once the integration is fixed.
+                GLLog.Trace("AdjustMmp: Adjust SDK not detected within " + TIMEOUT_SECONDS
+                    + "s — bailing (did you call Adjust.InitSdk()?).");
                 Destroy(gameObject);
                 yield break;
             }
@@ -100,6 +103,7 @@ namespace GameLyft.Sdk
             {
                 // Timed out — Adjust was up but never delivered attribution (organic
                 // install with no tracker, server unreachable, editor short-circuit, etc.).
+                GLLog.Trace("AdjustMmp: timed out — Adjust delivered no attribution this session.");
                 Destroy(gameObject);
                 yield break;
             }

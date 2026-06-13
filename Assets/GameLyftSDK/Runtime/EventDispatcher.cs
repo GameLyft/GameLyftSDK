@@ -105,6 +105,25 @@ namespace GameLyft.Sdk
             var queuedEvent = new QueuedFirebaseEvent(eventName, parameters);
             eventQueue.events.Add(queuedEvent);
             SaveQueueToPlayerPrefs();
+            GLLog.Trace("Queued '" + eventName + "' — queue depth " + eventQueue.events.Count
+                + (GameLyftAnalytics.IsInitialized ? "" : " (pre-Initialize; will drain once Initialize() runs)"));
+        }
+
+        /// <summary>Compact "{ k=v, ... }" of what actually hits Firebase (incl. injected event_type/session).</summary>
+        private static string DescribeQueued(List<QueuedParameter> ps)
+        {
+            var sb = new System.Text.StringBuilder("{ ");
+            if (ps != null)
+            {
+                foreach (var p in ps)
+                {
+                    if (string.IsNullOrEmpty(p.key) || p.key == "session" || p.key == "event_type") continue;
+                    sb.Append(p.key).Append('=').Append(p.value).Append(", ");
+                }
+            }
+            sb.Append("event_type=").Append(EVENT_TYPE_VALUE)
+              .Append(", session=").Append(GameLyftAnalytics.SessionCount).Append(" }");
+            return sb.ToString();
         }
 
         internal static QueuedParameter StringParam(string key, string value)
@@ -128,6 +147,8 @@ namespace GameLyft.Sdk
         {
             // Wait for the consumer to finish their Firebase init and call Initialize()
             yield return new WaitUntil(() => GameLyftAnalytics.IsInitialized);
+
+            GLLog.Trace("Queue processor started — " + eventQueue.events.Count + " event(s) pending flush.");
 
             while (true)
             {
@@ -159,6 +180,9 @@ namespace GameLyft.Sdk
                     Parameter[] firebaseParams = ConvertToFirebaseParameters(queuedEvent.parameters);
                     FirebaseAnalytics.LogEvent(queuedEvent.eventName, firebaseParams);
                     success = true;
+                    if (GLLog.IsVerbose)
+                        GLLog.Trace("-> Firebase '" + queuedEvent.eventName + "' "
+                            + DescribeQueued(queuedEvent.parameters));
                 }
                 catch (Exception e)
                 {
@@ -168,6 +192,8 @@ namespace GameLyft.Sdk
                 if (sendException != null)
                 {
                     retryCount++;
+                    GLLog.Warn("Firebase LogEvent('" + queuedEvent.eventName + "') failed (attempt "
+                        + retryCount + "), retrying in " + (RETRY_DELAY * retryCount) + "s: " + sendException.Message);
                     yield return new WaitForSeconds(RETRY_DELAY * retryCount);
                 }
             }
@@ -175,6 +201,9 @@ namespace GameLyft.Sdk
             eventQueue.events.RemoveAt(0);
             SaveQueueToPlayerPrefs();
             isProcessing = false;
+            if (eventQueue.events.Count > 0)
+                GLLog.Trace("Flushed '" + queuedEvent.eventName + "' — "
+                    + eventQueue.events.Count + " event(s) still queued.");
         }
 
         // Stamped on EVERY event at flush time — gl_purchase, gl_ad_impression,
@@ -237,7 +266,7 @@ namespace GameLyft.Sdk
                 PlayerPrefs.SetString(PLAYER_PREFS_KEY, json);
                 PlayerPrefs.Save();
             }
-            catch { }
+            catch (Exception e) { GLLog.Error("Failed to persist event queue: " + e.Message); }
         }
 
         private void LoadQueueFromPlayerPrefs()
@@ -251,6 +280,8 @@ namespace GameLyft.Sdk
                     {
                         eventQueue = JsonUtility.FromJson<EventQueue>(json);
                         if (eventQueue == null) eventQueue = new EventQueue();
+                        if (eventQueue.events.Count > 0)
+                            GLLog.Trace("Restored " + eventQueue.events.Count + " persisted event(s) from disk.");
                     }
                 }
             }

@@ -52,6 +52,7 @@ namespace GameLyft.Sdk
             // When Singular's native side eventually has attribution to deliver, it'll
             // dispatch to whichever handler is currently registered.
             SingularSDK.SetSingularDeviceAttributionCallbackHandler(component);
+            GLLog.Trace("SingularMmp enabled — registered attribution callback (mmp_install pending).");
         }
 
         // Callback dispatched from SingularSDK after JSON-parsing the native payload.
@@ -59,6 +60,8 @@ namespace GameLyft.Sdk
         public void OnSingularDeviceAttributionCallback(Dictionary<string, object> attributionInfo)
         {
             if (attributionInfo == null || attributionInfo.Count == 0) return;
+
+            GLLog.Trace("SingularMmp: attribution callback fired — mapping to mmp_install.");
 
             // DIAGNOSTIC: emit the full raw schema as a Firebase event so we can confirm
             // the actual key names in production via BigQuery. Remove once the schema is
