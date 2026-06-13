@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -15,189 +16,213 @@ namespace GameLyft.Sdk.EditorTools
         private const string SINGULAR_DEFINE = "GAMELYFT_SINGULAR";
         private const string TENJIN_DEFINE = "GAMELYFT_TENJIN";
 
-        private SerializedProperty _useAdMob;
-        private SerializedProperty _useAppLovin;
-        private SerializedProperty _enableSolarEngineMmp;
-        private SerializedProperty _enableAppsFlyerMmp;
-        private SerializedProperty _enableAdjustMmp;
-        private SerializedProperty _enableSingularMmp;
-        private SerializedProperty _enableTenjinMmp;
-        private SerializedProperty _testMode;
-        private SerializedProperty _autoInitialize;
+        private GameLyftSettings _s;
+
+        // Staged (un-applied) toggle state. Plain bools — NOT a live SerializedObject —
+        // so edits survive repaints and only commit on Apply.
+        private bool _admob, _applovin, _solar, _appsflyer, _adjust, _singular, _tenjin;
+        private bool _testMode, _autoInit;
 
         private void OnEnable()
         {
-            _useAdMob = serializedObject.FindProperty("useAdMobMediation");
-            _useAppLovin = serializedObject.FindProperty("useAppLovinMax");
-            _enableSolarEngineMmp = serializedObject.FindProperty("enableSolarEngineMmp");
-            _enableAppsFlyerMmp = serializedObject.FindProperty("enableAppsFlyerMmp");
-            _enableAdjustMmp = serializedObject.FindProperty("enableAdjustMmp");
-            _enableSingularMmp = serializedObject.FindProperty("enableSingularMmp");
-            _enableTenjinMmp = serializedObject.FindProperty("enableTenjinMmp");
-            _testMode = serializedObject.FindProperty("testMode");
-            _autoInitialize = serializedObject.FindProperty("autoInitialize");
+            _s = (GameLyftSettings)target;
 
-            // Asset bool is the source of truth — re-apply it to the scripting
-            // defines whenever the inspector opens. The ChangeCheck pattern below
-            // only fires on toggle, so without this an out-of-sync asset (manual
-            // edit, fresh import, machine switch) would silently leave defines
-            // disagreeing with the checkbox state.
-            DefineSymbolManager.SetDefine(ADMOB_DEFINE, _useAdMob.boolValue);
-            DefineSymbolManager.SetDefine(APPLOVIN_DEFINE, _useAppLovin.boolValue);
-            DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, _enableSolarEngineMmp.boolValue);
-            DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, _enableAppsFlyerMmp.boolValue);
-            DefineSymbolManager.SetDefine(ADJUST_DEFINE, _enableAdjustMmp.boolValue);
-            DefineSymbolManager.SetDefine(SINGULAR_DEFINE, _enableSingularMmp.boolValue);
-            DefineSymbolManager.SetDefine(TENJIN_DEFINE, _enableTenjinMmp.boolValue);
+            // Asset bool is the source of truth — re-apply it to the scripting defines
+            // whenever the inspector opens (catches drift from a manual edit, fresh
+            // import, or machine switch). Batched: one SetScriptingDefineSymbols write
+            // per build target at most.
+            DefineSymbolManager.SetDefines(DesiredDefinesFromAsset(_s));
+
+            LoadStagedFromAsset();
         }
 
-        // Reconcile on every editor reload AND auto-create the settings asset on
-        // first install. Catches drift introduced by source control, package
-        // re-imports, or anything that touches the .asset without going through
-        // the inspector. SetDefine is a no-op when the symbol is already in the
-        // desired state, so this won't trigger spurious recompile loops.
-        //
-        // Why delayCall: AssetDatabase.CreateAsset directly inside an
-        // InitializeOnLoadMethod can race with Unity's own asset import phase
-        // (especially right after a UPM package import). Deferring one editor
-        // frame lets Unity become idle before we write.
+        private void LoadStagedFromAsset()
+        {
+            _admob = _s.useAdMobMediation;
+            _applovin = _s.useAppLovinMax;
+            _solar = _s.enableSolarEngineMmp;
+            _appsflyer = _s.enableAppsFlyerMmp;
+            _adjust = _s.enableAdjustMmp;
+            _singular = _s.enableSingularMmp;
+            _tenjin = _s.enableTenjinMmp;
+            _testMode = _s.testMode;
+            _autoInit = _s.autoInitialize;
+        }
+
+        // Reconcile on every editor reload AND auto-create the settings asset on first
+        // install. Catches drift from source control, package re-imports, or anything
+        // that touches the .asset directly. SetDefines is a no-op when symbols already
+        // match, so this won't trigger spurious recompile loops. delayCall defers one
+        // frame so AssetDatabase.CreateAsset doesn't race Unity's import phase.
         [InitializeOnLoadMethod]
         private static void ReconcileDefinesOnLoad()
         {
             EditorApplication.delayCall += () =>
             {
-                // LoadOrCreate auto-creates the asset if missing — first run after
-                // a fresh install gets a brand-new asset with all bool fields
-                // defaulting to false (per the public field defaults in
-                // GameLyftSettings.cs). Consumers don't have to manually open
-                // Tools → GameLyft → Settings to get a baseline asset.
                 var settings = LoadOrCreate();
                 if (settings == null) return;
+                DefineSymbolManager.SetDefines(DesiredDefinesFromAsset(settings));
+            };
+        }
 
-                DefineSymbolManager.SetDefine(ADMOB_DEFINE, settings.useAdMobMediation);
-                DefineSymbolManager.SetDefine(APPLOVIN_DEFINE, settings.useAppLovinMax);
-                DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, settings.enableSolarEngineMmp);
-                DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, settings.enableAppsFlyerMmp);
-                DefineSymbolManager.SetDefine(ADJUST_DEFINE, settings.enableAdjustMmp);
-                DefineSymbolManager.SetDefine(SINGULAR_DEFINE, settings.enableSingularMmp);
-                DefineSymbolManager.SetDefine(TENJIN_DEFINE, settings.enableTenjinMmp);
+        private static Dictionary<string, bool> DesiredDefinesFromAsset(GameLyftSettings s)
+        {
+            return new Dictionary<string, bool>
+            {
+                { ADMOB_DEFINE, s.useAdMobMediation },
+                { APPLOVIN_DEFINE, s.useAppLovinMax },
+                { SOLAR_ENGINE_DEFINE, s.enableSolarEngineMmp },
+                { APPSFLYER_DEFINE, s.enableAppsFlyerMmp },
+                { ADJUST_DEFINE, s.enableAdjustMmp },
+                { SINGULAR_DEFINE, s.enableSingularMmp },
+                { TENJIN_DEFINE, s.enableTenjinMmp },
             };
         }
 
         public override void OnInspectorGUI()
         {
-            serializedObject.Update();
-
             EditorGUILayout.LabelField("GameLyft SDK Settings", EditorStyles.boldLabel);
+            EditorGUILayout.Space();
+
+            EditorGUILayout.HelpBox(
+                "Changes below are STAGED — nothing is written until you press Apply. " +
+                "Toggle as many integrations as you want, then Apply once: the asset is " +
+                "saved and all scripting defines update in a single recompile.",
+                MessageType.Info);
             EditorGUILayout.Space();
 
             EditorGUILayout.LabelField("Mediation", EditorStyles.miniBoldLabel);
             EditorGUILayout.HelpBox(
-                "Tick whichever ad mediation SDK(s) your project uses. Toggling these writes " +
-                "scripting define symbols (GAMELYFT_ADMOB / GAMELYFT_APPLOVIN) so the matching " +
-                "ReportAdRevenue overload is compiled in. Enabling both is fine — the overloads " +
-                "are distinguished by parameter type (AdValue vs MaxSdkBase.AdInfo).",
-                MessageType.Info);
+                "Tick whichever ad mediation SDK(s) your project uses. Applying writes the " +
+                "scripting defines (GAMELYFT_ADMOB / GAMELYFT_APPLOVIN) so the matching " +
+                "AdRevenue.Report overload compiles in. Enabling both is fine.",
+                MessageType.None);
 
-            EditorGUI.BeginChangeCheck();
-            bool admob = EditorGUILayout.ToggleLeft("AdMob Mediation", _useAdMob.boolValue);
-            if (EditorGUI.EndChangeCheck())
-            {
-                _useAdMob.boolValue = admob;
-                DefineSymbolManager.SetDefine(ADMOB_DEFINE, admob);
-            }
-
-            EditorGUI.BeginChangeCheck();
-            bool applovin = EditorGUILayout.ToggleLeft("AppLovin MAX Mediation", _useAppLovin.boolValue);
-            if (EditorGUI.EndChangeCheck())
-            {
-                _useAppLovin.boolValue = applovin;
-                DefineSymbolManager.SetDefine(APPLOVIN_DEFINE, applovin);
-            }
+            _admob = StagedToggle("AdMob Mediation", _admob, ADMOB_DEFINE);
+            _applovin = StagedToggle("AppLovin MAX Mediation", _applovin, APPLOVIN_DEFINE);
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("MMP (Attribution)", EditorStyles.miniBoldLabel);
             EditorGUILayout.HelpBox(
-                "Enable an MMP integration to auto-report attribution as a one-shot 'mmp_install' " +
-                "Firebase event. Each integration polls its own SDK for attribution after init, " +
-                "then maps source/campaign/ad_set/creative to the standard schema. The install " +
-                "event is guarded to fire at most once per device install regardless of how many " +
-                "MMPs are enabled — whichever delivers attribution first wins.",
-                MessageType.Info);
+                "Enable an MMP integration to auto-report attribution as a one-shot " +
+                "'mmp_install' Firebase event (deduped — whichever MMP delivers first wins).",
+                MessageType.None);
 
-            EditorGUI.BeginChangeCheck();
-            bool solarMmp = EditorGUILayout.ToggleLeft("Solar Engine MMP", _enableSolarEngineMmp.boolValue);
-            if (EditorGUI.EndChangeCheck())
-            {
-                _enableSolarEngineMmp.boolValue = solarMmp;
-                DefineSymbolManager.SetDefine(SOLAR_ENGINE_DEFINE, solarMmp);
-            }
-
-            EditorGUI.BeginChangeCheck();
-            bool appsFlyerMmp = EditorGUILayout.ToggleLeft("AppsFlyer MMP", _enableAppsFlyerMmp.boolValue);
-            if (EditorGUI.EndChangeCheck())
-            {
-                _enableAppsFlyerMmp.boolValue = appsFlyerMmp;
-                DefineSymbolManager.SetDefine(APPSFLYER_DEFINE, appsFlyerMmp);
-            }
-
-            EditorGUI.BeginChangeCheck();
-            bool adjustMmp = EditorGUILayout.ToggleLeft("Adjust MMP", _enableAdjustMmp.boolValue);
-            if (EditorGUI.EndChangeCheck())
-            {
-                _enableAdjustMmp.boolValue = adjustMmp;
-                DefineSymbolManager.SetDefine(ADJUST_DEFINE, adjustMmp);
-            }
-
-            EditorGUI.BeginChangeCheck();
-            bool singularMmp = EditorGUILayout.ToggleLeft("Singular MMP", _enableSingularMmp.boolValue);
-            if (EditorGUI.EndChangeCheck())
-            {
-                _enableSingularMmp.boolValue = singularMmp;
-                DefineSymbolManager.SetDefine(SINGULAR_DEFINE, singularMmp);
-            }
-
-            EditorGUI.BeginChangeCheck();
-            bool tenjinMmp = EditorGUILayout.ToggleLeft("Tenjin MMP", _enableTenjinMmp.boolValue);
-            if (EditorGUI.EndChangeCheck())
-            {
-                _enableTenjinMmp.boolValue = tenjinMmp;
-                DefineSymbolManager.SetDefine(TENJIN_DEFINE, tenjinMmp);
-            }
+            _solar = StagedToggle("Solar Engine MMP", _solar, SOLAR_ENGINE_DEFINE);
+            _appsflyer = StagedToggle("AppsFlyer MMP", _appsflyer, APPSFLYER_DEFINE);
+            _adjust = StagedToggle("Adjust MMP", _adjust, ADJUST_DEFINE);
+            _singular = StagedToggle("Singular MMP", _singular, SINGULAR_DEFINE);
+            _tenjin = StagedToggle("Tenjin MMP", _tenjin, TENJIN_DEFINE);
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Initialization", EditorStyles.miniBoldLabel);
             EditorGUILayout.HelpBox(
-                "Auto Initialize polls for Firebase readiness at app start and calls "
-                + "GameLyftAnalytics.Initialize() automatically once it detects Firebase is up. "
-                + "Requires zero code changes on your side. Times out after 5 minutes if "
-                + "Firebase never initializes.",
-                MessageType.Info);
-
-            EditorGUILayout.PropertyField(_autoInitialize, new GUIContent("Auto Initialize"));
+                "Auto Initialize polls for Firebase at app start and calls " +
+                "GameLyftAnalytics.Initialize() once it's ready. Times out after 5 minutes.",
+                MessageType.None);
+            _autoInit = EditorGUILayout.ToggleLeft(
+                "Auto Initialize" + PendingSuffix(_autoInit != _s.autoInitialize), _autoInit);
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Debug", EditorStyles.miniBoldLabel);
             EditorGUILayout.HelpBox(
-                "Test Mode routes SDK integration warnings (e.g. calls made before Initialize(), "
-                + "null ad callbacks, param limits exceeded) to an on-screen IMGUI panel in addition to "
-                + "the console. Turn this OFF for production builds — warnings will still go to the "
-                + "console, just not shown on-screen.",
-                MessageType.Info);
+                "Test Mode also shows SDK integration warnings on an on-screen panel. " +
+                "Turn OFF for production.",
+                MessageType.None);
+            _testMode = EditorGUILayout.ToggleLeft(
+                "Test Mode" + PendingSuffix(_testMode != _s.testMode), _testMode);
 
-            EditorGUILayout.PropertyField(_testMode, new GUIContent("Test Mode"));
+            // ===== Apply / Revert =====
+            EditorGUILayout.Space();
+            bool pending = HasPendingChanges();
+
+            if (pending)
+            {
+                EditorGUILayout.HelpBox(
+                    "Unapplied changes. Press Apply to save the asset and update the " +
+                    "scripting defines (one recompile).", MessageType.Warning);
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                using (new EditorGUI.DisabledScope(!pending))
+                {
+                    if (GUILayout.Button("Apply", GUILayout.Height(28)))
+                        ApplyAll();
+
+                    if (GUILayout.Button("Revert", GUILayout.Height(28), GUILayout.Width(90)))
+                    {
+                        LoadStagedFromAsset();
+                        GUI.FocusControl(null);
+                    }
+                }
+            }
 
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Status", EditorStyles.miniBoldLabel);
-            EditorGUILayout.LabelField("GAMELYFT_ADMOB:", DefineSymbolManager.HasDefine(ADMOB_DEFINE) ? "ON" : "off");
-            EditorGUILayout.LabelField("GAMELYFT_APPLOVIN:", DefineSymbolManager.HasDefine(APPLOVIN_DEFINE) ? "ON" : "off");
-            EditorGUILayout.LabelField("GAMELYFT_SOLAR_ENGINE:", DefineSymbolManager.HasDefine(SOLAR_ENGINE_DEFINE) ? "ON" : "off");
-            EditorGUILayout.LabelField("GAMELYFT_APPSFLYER:", DefineSymbolManager.HasDefine(APPSFLYER_DEFINE) ? "ON" : "off");
-            EditorGUILayout.LabelField("GAMELYFT_ADJUST:", DefineSymbolManager.HasDefine(ADJUST_DEFINE) ? "ON" : "off");
-            EditorGUILayout.LabelField("GAMELYFT_SINGULAR:", DefineSymbolManager.HasDefine(SINGULAR_DEFINE) ? "ON" : "off");
-            EditorGUILayout.LabelField("GAMELYFT_TENJIN:", DefineSymbolManager.HasDefine(TENJIN_DEFINE) ? "ON" : "off");
+            EditorGUILayout.LabelField("Status (currently applied defines)", EditorStyles.miniBoldLabel);
+            DrawStatusLine(ADMOB_DEFINE, _admob);
+            DrawStatusLine(APPLOVIN_DEFINE, _applovin);
+            DrawStatusLine(SOLAR_ENGINE_DEFINE, _solar);
+            DrawStatusLine(APPSFLYER_DEFINE, _appsflyer);
+            DrawStatusLine(ADJUST_DEFINE, _adjust);
+            DrawStatusLine(SINGULAR_DEFINE, _singular);
+            DrawStatusLine(TENJIN_DEFINE, _tenjin);
+        }
 
-            serializedObject.ApplyModifiedProperties();
+        private bool HasPendingChanges()
+        {
+            return _admob != _s.useAdMobMediation
+                || _applovin != _s.useAppLovinMax
+                || _solar != _s.enableSolarEngineMmp
+                || _appsflyer != _s.enableAppsFlyerMmp
+                || _adjust != _s.enableAdjustMmp
+                || _singular != _s.enableSingularMmp
+                || _tenjin != _s.enableTenjinMmp
+                || _testMode != _s.testMode
+                || _autoInit != _s.autoInitialize;
+        }
+
+        // Toggle whose "(pending Apply)" suffix appears when the staged value differs
+        // from the currently-applied scripting define.
+        private bool StagedToggle(string label, bool staged, string define)
+        {
+            bool applied = DefineSymbolManager.HasDefine(define);
+            return EditorGUILayout.ToggleLeft(label + PendingSuffix(staged != applied), staged);
+        }
+
+        private static string PendingSuffix(bool pending) => pending ? "   (pending Apply)" : "";
+
+        private void DrawStatusLine(string define, bool staged)
+        {
+            bool applied = DefineSymbolManager.HasDefine(define);
+            string state = applied ? "ON" : "off";
+            if (staged != applied)
+                state += staged ? "   →  ON after Apply" : "   →  off after Apply";
+            EditorGUILayout.LabelField(define + ":", state);
+        }
+
+        private void ApplyAll()
+        {
+            // 1) Commit staged values to the asset and persist it.
+            _s.useAdMobMediation = _admob;
+            _s.useAppLovinMax = _applovin;
+            _s.enableSolarEngineMmp = _solar;
+            _s.enableAppsFlyerMmp = _appsflyer;
+            _s.enableAdjustMmp = _adjust;
+            _s.enableSingularMmp = _singular;
+            _s.enableTenjinMmp = _tenjin;
+            _s.testMode = _testMode;
+            _s.autoInitialize = _autoInit;
+
+            EditorUtility.SetDirty(_s);
+            AssetDatabase.SaveAssets();
+
+            // 2) Write ALL scripting defines in one batched pass (at most one
+            //    SetScriptingDefineSymbols call per build target → a single recompile).
+            DefineSymbolManager.SetDefines(DesiredDefinesFromAsset(_s));
+
+            GUI.FocusControl(null);
+            Debug.Log("[GameLyft] Settings applied — asset saved and scripting defines updated.");
         }
 
         // === Menu / asset bootstrap ===

@@ -22,6 +22,17 @@ namespace GameLyft.Sdk.EditorTools
         internal static void SetDefine(string symbol, bool enabled)
         {
             if (string.IsNullOrEmpty(symbol)) return;
+            SetDefines(new Dictionary<string, bool> { { symbol, enabled } });
+        }
+
+        /// <summary>
+        /// Batch variant: applies many symbol add/removes with at most ONE
+        /// SetScriptingDefineSymbols write per build target, so toggling several
+        /// integrations triggers a single recompile instead of one per symbol.
+        /// </summary>
+        internal static void SetDefines(IDictionary<string, bool> desired)
+        {
+            if (desired == null || desired.Count == 0) return;
 
             foreach (var target in Targets)
             {
@@ -30,17 +41,21 @@ namespace GameLyft.Sdk.EditorTools
                 symbols.RemoveAll(string.IsNullOrWhiteSpace);
 
                 bool changed = false;
-                bool present = symbols.Contains(symbol);
+                foreach (var kvp in desired)
+                {
+                    if (string.IsNullOrEmpty(kvp.Key)) continue;
 
-                if (enabled && !present)
-                {
-                    symbols.Add(symbol);
-                    changed = true;
-                }
-                else if (!enabled && present)
-                {
-                    symbols.Remove(symbol);
-                    changed = true;
+                    bool present = symbols.Contains(kvp.Key);
+                    if (kvp.Value && !present)
+                    {
+                        symbols.Add(kvp.Key);
+                        changed = true;
+                    }
+                    else if (!kvp.Value && present)
+                    {
+                        symbols.Remove(kvp.Key);
+                        changed = true;
+                    }
                 }
 
                 if (changed)

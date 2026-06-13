@@ -177,11 +177,17 @@ namespace GameLyft.Sdk
             isProcessing = false;
         }
 
+        // Stamped on EVERY event at flush time — gl_purchase, gl_ad_impression,
+        // mmp_install, diagnostics, consumer events, all of them — so the whole
+        // SDK's Firebase output is identifiable by a single parameter.
+        private const string EVENT_TYPE_VALUE = "gl_analytics";
+
         private Parameter[] ConvertToFirebaseParameters(List<QueuedParameter> queuedParams)
         {
             var result = new List<Parameter>();
             if (queuedParams == null)
             {
+                result.Add(new Parameter("event_type", EVENT_TYPE_VALUE));
                 result.Add(new Parameter("session", GameLyftAnalytics.SessionCount));
                 return result.ToArray();
             }
@@ -193,6 +199,9 @@ namespace GameLyft.Sdk
                 // so events queued pre-Initialize() (or carried over from a prior run) get the
                 // correct current session number rather than a stale 0.
                 if (qp.key == "session") continue;
+                // Same for 'event_type': injected uniformly below. Also rewrites events
+                // persisted by older SDK versions (which queued "progression_analytics").
+                if (qp.key == "event_type") continue;
 
                 switch (qp.type)
                 {
@@ -211,9 +220,10 @@ namespace GameLyft.Sdk
                 }
             }
 
-            // Inject live session count at flush time. SessionCount is reliable here because
-            // ProcessQueueCoroutine waits on IsInitialized, and Initialize() sets SessionCount
-            // before flipping that flag.
+            // Inject event_type + live session count at flush time. SessionCount is
+            // reliable here because ProcessQueueCoroutine waits on IsInitialized, and
+            // Initialize() sets SessionCount before flipping that flag.
+            result.Add(new Parameter("event_type", EVENT_TYPE_VALUE));
             result.Add(new Parameter("session", GameLyftAnalytics.SessionCount));
 
             return result.ToArray();

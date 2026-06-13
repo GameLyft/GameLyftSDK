@@ -160,9 +160,11 @@ namespace GameLyft.Sdk
                 {
                     if (kvp.Value == null) continue;
 
-                    // Reserve one slot for the "_dropped" count if we hit the cap. GA4's hard
-                    // limit is 25 params per event; going over silently drops on the server.
-                    if (included >= 24)
+                    // Reserve slots for the "_dropped" count plus the flush-time
+                    // event_type + session params. GA4's hard limit is 25 params per
+                    // event; going over silently drops on the server. 22 + _dropped
+                    // + event_type + session = 25.
+                    if (included >= 22)
                     {
                         dropped++;
                         continue;
@@ -264,17 +266,14 @@ namespace GameLyft.Sdk
 
             EnsureDispatcher();
 
-            // 'session' is injected at flush time by EventDispatcher so events queued
-            // pre-Initialize() report the correct session rather than 0.
-            var firebaseParams = new List<EventDispatcher.QueuedParameter>
-            {
-                EventDispatcher.StringParam("event_type", "progression_analytics")
-            };
+            // 'event_type' (= "gl_analytics") and 'session' are injected at flush time
+            // by EventDispatcher — uniformly, for every event the SDK sends.
+            var firebaseParams = new List<EventDispatcher.QueuedParameter>();
 
             if (parameters != null)
             {
                 // GA4 drops events with more than 25 params server-side. Warn loudly.
-                // +2 accounts for the two we auto-inject (event_type at queue time, session at flush time).
+                // +2 accounts for the two injected at flush time (event_type + session).
                 if (parameters.Count + 2 > GA4_MAX_PARAMS)
                     Warn("TrackEvent('" + eventName + "') has " + (parameters.Count + 2)
                          + " parameters; GA4's limit is " + GA4_MAX_PARAMS

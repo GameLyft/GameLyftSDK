@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] - 2026-06-13
+
+### Changed
+
+- `event_type` is now injected on **every** Firebase event at flush time (alongside `session`) with the value `gl_analytics` — previously it was `progression_analytics` and only added by `TrackEvent`. This unifies the parameter across all SDK output (`gl_purchase`, `gl_ad_impression`, `mmp_install`, FTUE / level / ad-fill, and the `*_attribution` diagnostics). Events queued/persisted by 1.0.0 are rewritten with the new value on flush.
+- Settings editor (`Tools → GameLyft → Settings`): integration toggles are now **staged** behind an **Apply** button. Toggle multiple integrations, then Apply once to save the asset and update all scripting defines in a single recompile (previously each toggle wrote its define immediately, causing a recompile per click). Added a **Revert** button and per-toggle "(pending Apply)" indicators. Define writes are batched to one `SetScriptingDefineSymbols` call per build target.
+
 ## [1.0.0] - 2026-05-06
 
 ### Added
