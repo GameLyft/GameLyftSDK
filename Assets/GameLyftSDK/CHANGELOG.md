@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] - 2026-06-13
+
+### Added
+
+- **One-click "Wire AppsFlyer Handler" button** in *Tools → GameLyft → Settings* (under the AppsFlyer MMP toggle). Injects the 3 PlayerPrefs bridge lines at the **start** of every `onConversionDataSuccess(string)` handler in the project (existing handler code untouched), delimited by `GAMELYFT_APPSFLYER_BRIDGE_BEGIN/END` markers so it is idempotent and reversible — an **Unwire** button removes exactly the injected block, and **Re-scan** refreshes status. Re-run after an AppsFlyer SDK upgrade overwrites the handler file. Backed by the Editor-only `AppsFlyerConversionWirer`.
+
+### Changed
+
+- **AppsFlyer MMP is now automatic.** `AppsFlyerMmp` became a `BeforeSceneLoad` MonoBehaviour that auto-polls PlayerPrefs for AppsFlyer's conversion payload and fires the one-shot `mmp_install` itself — matching the auto-start pattern of every other MMP module (it was previously the *only* MMP requiring a manual `HandleConversionData(...)` call). The consumer's `onConversionDataSuccess` now just stashes the raw payload in PlayerPrefs (`AppsflyerGameLyftConversionData` + `isAppsflyerGameLyftConversionSet`), which crosses the AppsFlyer-SDK ↔ Assembly-CSharp asmdef boundary that a direct call cannot. PlayerPrefs persistence means a callback that lands after the poll window is still picked up on the next launch. `HandleConversionData(string)` / `(Dictionary)` remain public as a manual fallback.
+- Corrected the **AppsFlyer MMP** settings tooltip — it previously claimed the SDK called `AppsFlyer.getConversionData()` automatically after init, which was never implemented (the real path was a manual hookup). It now describes the PlayerPrefs auto-poll mechanism.
+
 ## [1.0.1] - 2026-06-13
 
 ### Changed

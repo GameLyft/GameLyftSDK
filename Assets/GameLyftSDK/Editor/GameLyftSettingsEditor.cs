@@ -23,6 +23,11 @@ namespace GameLyft.Sdk.EditorTools
         private bool _admob, _applovin, _solar, _appsflyer, _adjust, _singular, _tenjin;
         private bool _testMode, _autoInit;
 
+        // AppsFlyer conversion-handler wiring (cached scan + last action log). NOT staged —
+        // the Wire/Unwire buttons edit the handler .cs immediately.
+        private List<AppsFlyerConversionWirer.Handler> _afHandlers = new List<AppsFlyerConversionWirer.Handler>();
+        private string _afLog = "";
+
         private void OnEnable()
         {
             _s = (GameLyftSettings)target;
@@ -34,6 +39,7 @@ namespace GameLyft.Sdk.EditorTools
             DefineSymbolManager.SetDefines(DesiredDefinesFromAsset(_s));
 
             LoadStagedFromAsset();
+            RefreshAfHandlers();
         }
 
         private void LoadStagedFromAsset()
@@ -113,6 +119,10 @@ namespace GameLyft.Sdk.EditorTools
             _adjust = StagedToggle("Adjust MMP", _adjust, ADJUST_DEFINE);
             _singular = StagedToggle("Singular MMP", _singular, SINGULAR_DEFINE);
             _tenjin = StagedToggle("Tenjin MMP", _tenjin, TENJIN_DEFINE);
+
+            // One-click AppsFlyer conversion-handler wiring (immediate file edit, not staged).
+            if (_appsflyer || DefineSymbolManager.HasDefine(APPSFLYER_DEFINE))
+                DrawAppsFlyerWiring();
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Initialization", EditorStyles.miniBoldLabel);
@@ -199,6 +209,73 @@ namespace GameLyft.Sdk.EditorTools
             if (staged != applied)
                 state += staged ? "   →  ON after Apply" : "   →  off after Apply";
             EditorGUILayout.LabelField(define + ":", state);
+        }
+
+        // === AppsFlyer conversion-handler wiring ===
+
+        private void RefreshAfHandlers()
+        {
+            _afHandlers = AppsFlyerConversionWirer.FindHandlers();
+        }
+
+        // Injects/removes the PlayerPrefs bridge at the start of onConversionDataSuccess so the
+        // SDK's AppsFlyerMmp can auto-report 'mmp_install'. This is the click-button equivalent
+        // of the manual 3-line hookup. Shown only while the AppsFlyer MMP toggle is on.
+        private void DrawAppsFlyerWiring()
+        {
+            EditorGUILayout.Space();
+            using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
+            {
+                EditorGUILayout.LabelField("AppsFlyer conversion handler  →  PlayerPrefs bridge",
+                    EditorStyles.miniBoldLabel);
+
+                int found = _afHandlers.Count;
+                int wired = 0;
+                for (int i = 0; i < _afHandlers.Count; i++) if (_afHandlers[i].Wired) wired++;
+
+                if (found == 0)
+                {
+                    EditorGUILayout.HelpBox(
+                        "No onConversionDataSuccess(string) handler found in the project. Add the " +
+                        "AppsFlyer prefab (AppsFlyerObjectScript) to a scene first, then press Re-scan.",
+                        MessageType.Warning);
+                }
+                else
+                {
+                    string state = (wired == found) ? "wired" : (wired == 0 ? "NOT wired" : wired + " / " + found + " wired");
+                    EditorGUILayout.LabelField("Status:", state);
+                    foreach (var h in _afHandlers)
+                        EditorGUILayout.LabelField((h.Wired ? "   [wired]  " : "   [  -  ]  ") + h.RelPath);
+                }
+
+                EditorGUILayout.HelpBox(
+                    "Wire injects 3 PlayerPrefs lines at the START of onConversionDataSuccess so the SDK " +
+                    "auto-reports 'mmp_install' (your existing handler code is left untouched). The block is " +
+                    "delimited by marker comments — idempotent, and Unwire removes exactly it. Re-run after " +
+                    "an AppsFlyer SDK upgrade overwrites the handler file.",
+                    MessageType.None);
+
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    if (GUILayout.Button("Wire AppsFlyer Handler", GUILayout.Height(24)))
+                    {
+                        int n = AppsFlyerConversionWirer.WireAll(out _afLog);
+                        RefreshAfHandlers();
+                        Debug.Log("[GameLyft] AppsFlyer wiring — " + n + " handler(s) newly wired.\n" + _afLog);
+                    }
+                    using (new EditorGUI.DisabledScope(wired == 0))
+                    {
+                        if (GUILayout.Button("Unwire", GUILayout.Width(80), GUILayout.Height(24)))
+                        {
+                            int n = AppsFlyerConversionWirer.UnwireAll(out _afLog);
+                            RefreshAfHandlers();
+                            Debug.Log("[GameLyft] AppsFlyer unwiring — " + n + " handler(s) unwired.\n" + _afLog);
+                        }
+                    }
+                    if (GUILayout.Button("Re-scan", GUILayout.Width(80), GUILayout.Height(24)))
+                        RefreshAfHandlers();
+                }
+            }
         }
 
         private void ApplyAll()

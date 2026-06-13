@@ -21,7 +21,7 @@ namespace GameLyft.Sdk
         [Tooltip("Enable Solar Engine MMP attribution. Defines GAMELYFT_SOLAR_ENGINE. When ON, the SDK polls Solar Engine for attribution data after init and fires a one-shot 'mmp_install' Firebase event with the mapped fields. Requires Solar Engine Unity SDK in the project.")]
         public bool enableSolarEngineMmp = false;
 
-        [Tooltip("Enable AppsFlyer MMP attribution. Defines GAMELYFT_APPSFLYER. When ON, the SDK calls AppsFlyer.getConversionData() after init and fires a one-shot 'mmp_install' Firebase event mapped from the conversion data payload. Requires AppsFlyer Unity SDK in the project.")]
+        [Tooltip("Enable AppsFlyer MMP attribution. Defines GAMELYFT_APPSFLYER. When ON, the SDK auto-polls PlayerPrefs for AppsFlyer's conversion payload and fires a one-shot 'mmp_install' Firebase event mapped from media_source/campaign/adset/af_ad. Your AppsFlyer conversion handler must stash the raw payload in PlayerPrefs first — press the 'Wire AppsFlyer Handler' button below to inject the 3 lines automatically (or add them by hand; see the CONSUMER CONTRACT in AppsFlyerMmp.cs). Also emits an 'appsflyer_attribution' diagnostic event with the full payload. Requires AppsFlyer Unity SDK in the project.")]
         public bool enableAppsFlyerMmp = false;
 
         [Tooltip("Enable Adjust MMP attribution. Defines GAMELYFT_ADJUST. When ON, the SDK polls Adjust.GetAttribution() after init and fires a one-shot 'mmp_install' Firebase event mapped from Network/Campaign/Adgroup/Creative. Requires Adjust Unity SDK in the project.")]
