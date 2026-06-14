@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.5] - 2026-06-14
+
+### Fixed
+
+- **Tenjin MMP sub-assembly is now actually imported (follow-up to 1.0.4).** v1.0.4 shipped the `Runtime/Tenjin/` folder's *file* metas (`TenjinMmp.cs.meta`, `GameLyft.Sdk.Tenjin.asmdef.meta`) but omitted the **folder's own meta** (`Runtime/Tenjin.meta`). In an immutable (UPM) package Unity does not generate a missing folder meta, so it ignored the entire folder — the `GameLyft.Sdk.Tenjin` asmdef never imported or compiled, and the 1.0.4 fix didn't take effect. Added the missing folder meta. (Audited the rest of the package: every other file and folder already has a tracked `.meta`.)
+
 ## [1.0.4] - 2026-06-14
 
 ### Fixed
