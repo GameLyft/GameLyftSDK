@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.4] - 2026-06-14
+
+### Fixed
+
+- **Tenjin MMP now actually runs when the SDK is consumed as a UPM package.** The Tenjin module previously lived as a loose script at `Assets/GameLyftSDK/Tenjin/TenjinMmp.cs` with no asmdef — a layout that only compiles when the SDK is *vendored* into a project's `Assets/`. Imported as a UPM git package, Unity does **not** add loose package scripts to `Assembly-CSharp`, so `TenjinMmp` was never compiled, its `BeforeSceneLoad` bootstrap never ran, and Tenjin attribution (`mmp_install` / `tenjin_attribution`) silently never fired (no `TenjinMmp enabled…` log even with `GAMELYFT_TENJIN` set). It now lives in its own package sub-assembly **`GameLyft.Sdk.Tenjin`** (`Runtime/Tenjin/`, `defineConstraints: GAMELYFT_TENJIN`) and resolves `BaseTenjin` + `GetAttributionInfo` via **reflection** — so it compiles as part of the package without referencing `Assembly-CSharp` (which an asmdef cannot do), keeps the zero-consumer-code auto-poll, and degrades to a clean no-op (with a one-time warning) if the Tenjin SDK isn't present. The other MMPs were unaffected — each already has its own `Runtime/` sub-asmdef.
+
 ## [1.0.3] - 2026-06-13
 
 ### Added
