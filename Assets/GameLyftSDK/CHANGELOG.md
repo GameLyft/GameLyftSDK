@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.6] - 2026-06-14
+
+### Fixed
+
+- **MMP modules are no longer stripped from IL2CPP / device builds.** Every MMP integration is reached only through its `[RuntimeInitializeOnLoadMethod]` bootstrap, with no static reference from consumer code. Managed code stripping (on by default for IL2CPP) removes whole assemblies that nothing references — so on device the linker dropped the MMP DLL and its bootstrap never ran, even though it compiled and ran fine in the editor (which doesn't strip). This hit `GameLyft.Sdk.Tenjin` outright (referenced by nothing) and was latent for the rest (`GameLyft.Sdk.AppsFlyer` survived only when the consumer calls its `HandleConversionData`; Solar Engine / Adjust / Singular would strip when enabled without a static reference). Added `[assembly: AlwaysLinkAssembly]` to all five MMP sub-assemblies so the linker always keeps them; once an assembly is kept, Unity roots its `RuntimeInitializeOnLoadMethod`. (Chosen over a `link.xml`: it's `defineConstraints`-safe — no "assembly not found" warning when a toggle is off — and adds no new asset/`.meta`.)
+
 ## [1.0.5] - 2026-06-14
 
 ### Fixed

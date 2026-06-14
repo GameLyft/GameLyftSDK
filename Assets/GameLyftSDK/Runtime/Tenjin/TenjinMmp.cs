@@ -4,6 +4,14 @@ using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
+// This MMP assembly is reached ONLY through [RuntimeInitializeOnLoadMethod] — no consumer
+// code references it statically. On IL2CPP/device builds the managed linker would otherwise
+// drop the whole DLL as unreferenced and the bootstrap would never run (it works in the
+// editor, which doesn't strip — which is exactly why this was invisible until on-device).
+// AlwaysLinkAssembly forces the linker to keep the assembly; once kept, Unity roots the
+// RuntimeInitializeOnLoadMethod itself.
+[assembly: UnityEngine.Scripting.AlwaysLinkAssembly]
+
 namespace GameLyft.Sdk
 {
     /// <summary>

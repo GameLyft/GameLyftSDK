@@ -4,6 +4,12 @@ using System.Collections.Generic;
 using AppsFlyerSDK;
 using UnityEngine;
 
+// Reached via [RuntimeInitializeOnLoadMethod] (auto-poll) — a consumer that doesn't call the
+// static HandleConversionData() has no static reference to this assembly, so the IL2CPP/device
+// linker could drop the whole DLL and the bootstrap would never run. AlwaysLinkAssembly forces
+// the linker to keep it; once kept, Unity roots the RuntimeInitializeOnLoadMethod itself.
+[assembly: UnityEngine.Scripting.AlwaysLinkAssembly]
+
 namespace GameLyft.Sdk
 {
     /// <summary>

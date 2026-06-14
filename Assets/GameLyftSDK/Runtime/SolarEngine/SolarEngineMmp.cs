@@ -2,6 +2,12 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+// Reached ONLY through [RuntimeInitializeOnLoadMethod] — no static reference from consumer
+// code, so the IL2CPP/device linker could drop the whole DLL as unreferenced and the bootstrap
+// would never run (it works in the editor, which doesn't strip). AlwaysLinkAssembly forces the
+// linker to keep the assembly; once kept, Unity roots the RuntimeInitializeOnLoadMethod itself.
+[assembly: UnityEngine.Scripting.AlwaysLinkAssembly]
+
 namespace GameLyft.Sdk
 {
     /// <summary>
