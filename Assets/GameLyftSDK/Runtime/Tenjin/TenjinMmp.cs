@@ -93,8 +93,9 @@ namespace GameLyft.Sdk
             float startTime = Time.time;
 
             // Phase 1: wait for the consumer's BaseTenjin singleton to appear. Their
-            // Tenjin.getInstance(apiKey) creates a DontDestroyOnLoad "Tenjin" GameObject
-            // with a BaseTenjin subclass; HideAndDontSave does not block FindObjectOfType.
+            // Tenjin.getInstance(apiKey) creates a "Tenjin" GameObject (DontDestroyOnLoad,
+            // HideFlags.HideAndDontSave) with a BaseTenjin subclass. See FindBaseTenjin for
+            // why this must use Resources.FindObjectsOfTypeAll rather than FindObjectOfType.
             UnityEngine.Object instance = FindBaseTenjin();
             while (instance == null && Time.time - startTime < TIMEOUT_SECONDS)
             {
@@ -198,11 +199,15 @@ namespace GameLyft.Sdk
         private static UnityEngine.Object FindBaseTenjin()
         {
             if (_baseTenjinType == null) return null;
-#if UNITY_2023_1_OR_NEWER
-            return UnityEngine.Object.FindAnyObjectByType(_baseTenjinType);
-#else
-            return UnityEngine.Object.FindObjectOfType(_baseTenjinType);
-#endif
+
+            // Tenjin's getInstance() creates its "Tenjin" GameObject with
+            // HideFlags.HideAndDontSave (Tenjin.cs). FindObjectOfType / FindAnyObjectByType
+            // do NOT return objects with that hide flag — they only see normal active scene
+            // objects — so they never found the instance and Phase 1 timed out.
+            // Resources.FindObjectsOfTypeAll DOES include hidden / DontSave objects, so it's
+            // the reliable way to observe the Tenjin singleton.
+            var all = Resources.FindObjectsOfTypeAll(_baseTenjinType);
+            return (all != null && all.Length > 0) ? all[0] : null;
         }
 
         // Resolve the global-namespace BaseTenjin type. The Tenjin SDK has no asmdef, so it

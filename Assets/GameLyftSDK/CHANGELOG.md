@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.7] - 2026-06-15
+
+### Fixed
+
+- **Tenjin attribution now actually fires.** `TenjinMmp` located the consumer's `BaseTenjin` instance with `FindObjectOfType` / `FindAnyObjectByType`, but Tenjin's SDK creates its "Tenjin" GameObject with `HideFlags.HideAndDontSave` (`Tenjin.cs`) — and those APIs skip objects with that hide flag (they only return normal active scene objects). So the instance was never found, Phase 1 timed out, and `mmp_install` / `tenjin_attribution` never fired (the bootstrap itself ran — that was the 1.0.6 fix — it just bailed at the scene find). Switched to `Resources.FindObjectsOfTypeAll`, which DOES return hidden / `DontSave` objects. Only Tenjin was affected: AppsFlyer uses the PlayerPrefs bridge (no scene find) and Solar Engine's singleton isn't hidden.
+
 ## [1.0.6] - 2026-06-14
 
 ### Fixed
