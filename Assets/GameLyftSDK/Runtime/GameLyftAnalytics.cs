@@ -141,7 +141,10 @@ namespace GameLyft.Sdk
             /// (e.g. "singular_attribution", "adjust_attribution", "appsflyer_attribution").
             ///
             /// Firebase guardrails baked in:
-            ///   - 25-param limit: any keys past 24 are dropped, with a "_dropped" count param.
+            ///   - 25-param limit: GA4 caps events at 25 params, so a large payload is SPLIT
+            ///     across as many '<name>_1', '<name>_2', … events as needed — nothing is
+            ///     dropped. Every part carries '_part' (1-based) + '_parts' (total) so you can
+            ///     verify completeness and re-stitch the full payload in BigQuery.
             ///   - 100-char value limit: longer string values are truncated.
             ///   - null values are skipped (Firebase rejects them anyway).
             ///   - non-string keys with disallowed chars (Firebase requires [A-Za-z0-9_]) are
@@ -158,23 +161,13 @@ namespace GameLyft.Sdk
 
                 EnsureDispatcher();
 
-                var firebaseParams = new List<EventDispatcher.QueuedParameter>();
-                int included = 0;
-                int dropped = 0;
-
+                // Flatten to sanitized (key, value) pairs first so we know the true count
+                // before chunking: null values skipped (Firebase rejects them), keys
+                // sanitized to [A-Za-z0-9_], values truncated to Firebase's 100-char limit.
+                var pairs = new List<KeyValuePair<string, string>>(attributionPayload.Count);
                 foreach (var kvp in attributionPayload)
                 {
                     if (kvp.Value == null) continue;
-
-                    // Reserve slots for the "_dropped" count plus the flush-time
-                    // event_type + session params. GA4's hard limit is 25 params per
-                    // event; going over silently drops on the server. 22 + _dropped
-                    // + event_type + session = 25.
-                    if (included >= 22)
-                    {
-                        dropped++;
-                        continue;
-                    }
 
                     string key = SanitizeKey(kvp.Key);
                     if (string.IsNullOrEmpty(key)) continue;
@@ -182,16 +175,35 @@ namespace GameLyft.Sdk
                     string val = kvp.Value.ToString();
                     if (val.Length > 100) val = val.Substring(0, 100);
 
-                    firebaseParams.Add(EventDispatcher.StringParam(key, val));
-                    included++;
+                    pairs.Add(new KeyValuePair<string, string>(key, val));
                 }
+                if (pairs.Count == 0) return;
 
-                if (dropped > 0)
-                    firebaseParams.Add(EventDispatcher.LongParam("_dropped", dropped));
+                // GA4 caps events at 25 params. EventDispatcher appends 2 at flush time
+                // (event_type + session) and we add 2 markers (_part + _parts), leaving 21
+                // payload keys per event. Split into '<name>_1', '<name>_2', … so EVERY key
+                // is emitted — no truncation, no "_dropped".
+                const int KEYS_PER_EVENT = 21;
+                int totalParts = (pairs.Count + KEYS_PER_EVENT - 1) / KEYS_PER_EVENT;
 
-                GLLog.Trace("Mmp.LogAttributionSchema '" + firebaseEventName + "' — " + included
-                    + " keys" + (dropped > 0 ? ", " + dropped + " dropped" : "") + ".");
-                EventDispatcher.Instance.LogEvent(firebaseEventName, firebaseParams);
+                for (int part = 0; part < totalParts; part++)
+                {
+                    int start = part * KEYS_PER_EVENT;
+                    int end = start + KEYS_PER_EVENT;
+                    if (end > pairs.Count) end = pairs.Count;
+
+                    var firebaseParams = new List<EventDispatcher.QueuedParameter>(end - start + 2);
+                    for (int i = start; i < end; i++)
+                        firebaseParams.Add(EventDispatcher.StringParam(pairs[i].Key, pairs[i].Value));
+
+                    firebaseParams.Add(EventDispatcher.LongParam("_part", part + 1));
+                    firebaseParams.Add(EventDispatcher.LongParam("_parts", totalParts));
+
+                    string eventName = firebaseEventName + "_" + (part + 1);
+                    GLLog.Trace("Mmp.LogAttributionSchema '" + eventName + "' — " + (end - start)
+                        + " keys (part " + (part + 1) + "/" + totalParts + ").");
+                    EventDispatcher.Instance.LogEvent(eventName, firebaseParams);
+                }
             }
 
             // Firebase param keys must match [A-Za-z_][A-Za-z0-9_]{0,39}. Quick coercion:

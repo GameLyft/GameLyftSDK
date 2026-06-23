@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.8] - 2026-06-23
+
+### Changed
+
+- **MMP attribution-schema diagnostics now emit the FULL payload, split across numbered events.** The `*_attribution` discovery dumps (`appsflyer_attribution`, `tenjin_attribution`, `singular_attribution`, `adjust_attribution`) previously capped at 22 keys per event and discarded the remainder into a `_dropped` counter. On large payloads — AppsFlyer's Google conversion data is ~40 keys — meaningful attribution keys (e.g. `campaign`) could silently fall past the cap and never reach BigQuery, even though `mmp_install` itself read and mapped them correctly (it reads keys directly, with no cap). `LogAttributionSchema` now splits the entire payload across as many `<name>_1`, `<name>_2`, … events as needed — 21 payload keys each, within GA4's 25-param limit — so **nothing is dropped**. Every part carries `_part` (1-based) and `_parts` (total), so completeness is verifiable and the full payload can be re-stitched in BigQuery by grouping the parts on `user_pseudo_id` + `event_timestamp`. **Querying note:** the diagnostic event name now always carries a numeric suffix — use `event_name LIKE '<name>_%'` (e.g. `appsflyer_attribution_1`) instead of the bare `<name>`. Affects the discovery diagnostics only; `mmp_install` and all production events are unchanged.
+
 ## [1.0.7] - 2026-06-15
 
 ### Fixed
