@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.9] - 2026-06-24
+
+### Fixed
+
+- **Attribution-schema diagnostic markers were rejected by Firebase on-device.** The split markers introduced in 1.0.8 were named `_part` / `_parts`, but GA4 rejects event-parameter names that start with an underscore (`Name must start with a letter` — confirmed in device logcat), so the part/total markers were silently dropped. Renamed to **`gl_part` / `gl_parts`**. Also hardened `SanitizeKey`: a payload key beginning with a digit was previously coerced to `_<key>`, which Firebase would likewise reject — it now prefixes a letter so every sanitized key starts with a letter. The split events and their payload keys were always emitted correctly; only the two markers were affected. **Query note:** re-stitch parts via `gl_part` / `gl_parts` (not `_part` / `_parts`).
+
 ## [1.0.8] - 2026-06-23
 
 ### Changed

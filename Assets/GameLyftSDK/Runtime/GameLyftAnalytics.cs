@@ -143,8 +143,9 @@ namespace GameLyft.Sdk
             /// Firebase guardrails baked in:
             ///   - 25-param limit: GA4 caps events at 25 params, so a large payload is SPLIT
             ///     across as many '<name>_1', '<name>_2', … events as needed — nothing is
-            ///     dropped. Every part carries '_part' (1-based) + '_parts' (total) so you can
-            ///     verify completeness and re-stitch the full payload in BigQuery.
+            ///     dropped. Every part carries 'gl_part' (1-based) + 'gl_parts' (total) so you
+            ///     can verify completeness and re-stitch the full payload in BigQuery. (Marker
+            ///     names must start with a letter — GA4 rejects a leading '_' on-device.)
             ///   - 100-char value limit: longer string values are truncated.
             ///   - null values are skipped (Firebase rejects them anyway).
             ///   - non-string keys with disallowed chars (Firebase requires [A-Za-z0-9_]) are
@@ -180,7 +181,7 @@ namespace GameLyft.Sdk
                 if (pairs.Count == 0) return;
 
                 // GA4 caps events at 25 params. EventDispatcher appends 2 at flush time
-                // (event_type + session) and we add 2 markers (_part + _parts), leaving 21
+                // (event_type + session) and we add 2 markers (gl_part + gl_parts), leaving 21
                 // payload keys per event. Split into '<name>_1', '<name>_2', … so EVERY key
                 // is emitted — no truncation, no "_dropped".
                 const int KEYS_PER_EVENT = 21;
@@ -196,8 +197,8 @@ namespace GameLyft.Sdk
                     for (int i = start; i < end; i++)
                         firebaseParams.Add(EventDispatcher.StringParam(pairs[i].Key, pairs[i].Value));
 
-                    firebaseParams.Add(EventDispatcher.LongParam("_part", part + 1));
-                    firebaseParams.Add(EventDispatcher.LongParam("_parts", totalParts));
+                    firebaseParams.Add(EventDispatcher.LongParam("gl_part", part + 1));
+                    firebaseParams.Add(EventDispatcher.LongParam("gl_parts", totalParts));
 
                     string eventName = firebaseEventName + "_" + (part + 1);
                     GLLog.Trace("Mmp.LogAttributionSchema '" + eventName + "' — " + (end - start)
@@ -206,8 +207,9 @@ namespace GameLyft.Sdk
                 }
             }
 
-            // Firebase param keys must match [A-Za-z_][A-Za-z0-9_]{0,39}. Quick coercion:
-            // replace anything illegal with '_' and prefix with '_' if first char is a digit.
+            // Firebase param keys must match [A-Za-z][A-Za-z0-9_]{0,39} — they must START
+            // WITH A LETTER. A leading digit OR underscore is rejected on-device ("Name must
+            // start with a letter"). Replace illegal chars with '_', then ensure a letter leads.
             private static string SanitizeKey(string key)
             {
                 if (string.IsNullOrEmpty(key)) return null;
@@ -223,8 +225,14 @@ namespace GameLyft.Sdk
                     else
                         chars.Append('_');
                 }
-                if (chars.Length > 0 && chars[0] >= '0' && chars[0] <= '9')
-                    chars.Insert(0, '_');
+                // Must start with a letter — prefix one if sanitizing left a digit or '_' in front.
+                char head = chars[0];
+                bool startsWithLetter = (head >= 'A' && head <= 'Z') || (head >= 'a' && head <= 'z');
+                if (!startsWithLetter)
+                {
+                    chars.Insert(0, 'k');
+                    if (chars.Length > 40) chars.Length = 40;
+                }
                 return chars.ToString();
             }
         }
