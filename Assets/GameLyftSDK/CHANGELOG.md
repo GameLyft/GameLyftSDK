@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.10] - 2026-06-29
+
+### Added
+
+- **AppsFlyer device ID (AFID) reporting.** When the AppsFlyer MMP is enabled (`GAMELYFT_APPSFLYER`), the SDK now fires a one-shot **`appsflyer_id`** Firebase event carrying AppsFlyer's unique device ID (`AppsFlyer.getAppsFlyerId()` — the same value as the *AppsFlyer ID* column in raw-data / Pull API exports), so Firebase events can be joined to AppsFlyer's raw data on the AFID. It runs **independently of conversion data**: a dedicated bootstrap (`AppsFlyerIdReporter`) polls `getAppsFlyerId()` until it returns a non-empty value — the SDK-side signal that AppsFlyer has initialized (it returns `""` before `initSDK`/`startSDK`) — then reports the AFID through the standard event queue. Fires once per install (PlayerPrefs-guarded, set only after a successful send, so a launch where AppsFlyer never initializes simply retries next session). No new files or assemblies — it lives alongside `AppsFlyerMmp` in the existing AppsFlyer sub-package.
+
 ## [1.0.9] - 2026-06-24
 
 ### Fixed

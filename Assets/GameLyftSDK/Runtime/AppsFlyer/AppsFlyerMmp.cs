@@ -183,4 +183,92 @@ namespace GameLyft.Sdk
             return dict.TryGetValue(key, out var v) && v != null ? v.ToString() : null;
         }
     }
+
+    /// <summary>
+    /// Reports the AppsFlyer device ID (AFID) to Firebase as a one-shot 'appsflyer_id' event,
+    /// INDEPENDENTLY of conversion data. Use the AFID to join Firebase events to AppsFlyer
+    /// raw-data / Pull API (it's the "AppsFlyer ID" column in those exports).
+    ///
+    /// Gated by the same toggle as the AppsFlyer MMP (GAMELYFT_APPSFLYER define + the
+    /// 'AppsFlyer MMP' setting). It does NOT depend on the PlayerPrefs conversion bridge or the
+    /// mmp_install guard — its "AppsFlyer is initialized" signal is simply
+    /// AppsFlyer.getAppsFlyerId() returning a non-empty value (it returns "" until the consumer
+    /// has called AppsFlyer.initSDK / startSDK).
+    ///
+    /// Fires ONCE per install (PlayerPrefs guard, set only after a successful send), so a session
+    /// where AppsFlyer never finishes initializing simply retries on the next launch.
+    /// </summary>
+    internal class AppsFlyerIdReporter : MonoBehaviour
+    {
+        private const string SENT_GUARD_KEY = "GLSdk_appsflyer_id_sent";
+        private const float POLL_INTERVAL_SECONDS = 2f;
+        private const float TIMEOUT_SECONDS = 180f;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        private static void Bootstrap()
+        {
+            // defineConstraints (GAMELYFT_APPSFLYER) is the primary gate; the setting check
+            // covers a toggle flipped off mid-recompile.
+            var settings = GameLyftSettings.LoadOrNull();
+            if (settings == null || !settings.enableAppsFlyerMmp) return;
+
+            // Already reported the AFID on this install — nothing to do.
+            if (PlayerPrefs.GetInt(SENT_GUARD_KEY, 0) == 1) return;
+
+            var go = new GameObject("[GameLyft.AppsFlyerIdReporter]");
+            DontDestroyOnLoad(go);
+            go.hideFlags = HideFlags.HideInHierarchy;
+            go.AddComponent<AppsFlyerIdReporter>();
+            GLLog.Trace("AppsFlyerIdReporter enabled — waiting for AppsFlyer SDK init to capture the AppsFlyer ID.");
+        }
+
+        private void Start()
+        {
+            StartCoroutine(WaitForAppsFlyerIdAndReport());
+        }
+
+        private IEnumerator WaitForAppsFlyerIdAndReport()
+        {
+            float startTime = Time.time;
+
+            // Non-empty getAppsFlyerId() == AppsFlyer SDK initialized (consumer called
+            // initSDK/startSDK). No dependency on conversion data.
+            string afid = SafeGetAppsFlyerId();
+            while (string.IsNullOrEmpty(afid) && Time.time - startTime < TIMEOUT_SECONDS)
+            {
+                yield return new WaitForSeconds(POLL_INTERVAL_SECONDS);
+                afid = SafeGetAppsFlyerId();
+            }
+
+            if (string.IsNullOrEmpty(afid))
+            {
+                GLLog.Trace("AppsFlyerIdReporter timed out after " + TIMEOUT_SECONDS
+                    + "s — AppsFlyer ID unavailable (SDK not initialized this session?). Will retry next launch.");
+                Destroy(gameObject);
+                yield break;
+            }
+
+            GLLog.Info("AppsFlyer ID captured: " + afid + " — firing 'appsflyer_id'.");
+            GameLyftAnalytics.TrackEvent("appsflyer_id", new Dictionary<string, object>
+            {
+                { "appsflyer_id", afid },
+            });
+
+            PlayerPrefs.SetInt(SENT_GUARD_KEY, 1);
+            PlayerPrefs.Save();
+            Destroy(gameObject);
+        }
+
+        // getAppsFlyerId() is a no-throw pull call (returns "" pre-init), but wrap defensively
+        // so an unexpected SDK-shape exception just retries instead of killing the coroutine.
+        private static string SafeGetAppsFlyerId()
+        {
+            try { return AppsFlyer.getAppsFlyerId(); }
+            catch (Exception e)
+            {
+                GLLog.Trace("AppsFlyerIdReporter: getAppsFlyerId() threw: " + e.Message);
+                return null;
+            }
+        }
+    }
 }
