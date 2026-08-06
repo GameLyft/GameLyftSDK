@@ -362,22 +362,14 @@ namespace GameLyft.Sdk
         }
 
         /// <summary>
-        /// Track a level progression event. Auto-dedupes per (level, state) pair via PlayerPrefs
-        /// so the same level_complete is never reported twice.
+        /// Track a level progression event. Fires 'level_progression' on EVERY call (NOT deduped)
+        /// with level_number + state, so you can count how many times each player starts / fails /
+        /// completes a level and reconstruct the full journey. Distinguish them in analytics by the
+        /// 'state' param; pass per-attempt detail (attempt number, time, score, …) via levelData.
         /// </summary>
         public static void TrackLevelProgression(int levelNumber, LevelState state, Dictionary<string, object> levelData = null)
         {
-            string dedupeKey = "GLSdk_lvl_" + levelNumber + "_" + state;
-            if (PlayerPrefs.GetString(dedupeKey) == "true")
-            {
-                GLLog.Trace("TrackLevelProgression skipped — level " + levelNumber + " '"
-                    + state + "' already reported (deduped).");
-                return;
-            }
-
-            if (state == LevelState.level_complete)
-                TrackEvent("level_" + levelNumber + "_completed");
-
+            
             var parameters = new Dictionary<string, object>
             {
                 { "level_number", levelNumber },
@@ -394,7 +386,6 @@ namespace GameLyft.Sdk
             }
 
             TrackEvent("level_progression", parameters);
-            PlayerPrefs.SetString(dedupeKey, "true");
         }
 
         /// <summary>
