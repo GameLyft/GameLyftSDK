@@ -366,10 +366,21 @@ namespace GameLyft.Sdk
         /// with level_number + state, so you can count how many times each player starts / fails /
         /// completes a level and reconstruct the full journey. Distinguish them in analytics by the
         /// 'state' param; pass per-attempt detail (attempt number, time, score, …) via levelData.
+        /// Also fires a one-shot 'level_&lt;N&gt;_completed' event the first time each level is completed.
         /// </summary>
         public static void TrackLevelProgression(int levelNumber, LevelState state, Dictionary<string, object> levelData = null)
         {
-            
+            // One-shot per-level 'level_<N>_completed' event — fires once per level on completion.
+            if (state == LevelState.level_complete)
+            {
+                string dedupeKey = "GLSdk_lvl_" + levelNumber + "_" + state;
+                if (PlayerPrefs.GetString(dedupeKey) != "true")
+                {
+                    PlayerPrefs.SetString(dedupeKey, "true");
+                    TrackEvent("level_" + levelNumber + "_completed");
+                }
+            }
+
             var parameters = new Dictionary<string, object>
             {
                 { "level_number", levelNumber },
