@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.11] - 2026-08-06
+
+### Changed
+
+- **`TrackLevelProgression` no longer dedupes `level_progression` — it now fires on every call.** Previously the method deduped per (level, state) via PlayerPrefs, so each milestone (e.g. `level_5` + `level_fail`) reported at most once per install — which made it impossible to count attempts. It now emits `level_progression` on **every** call with `level_number` + `state`, so you can count how many times each player starts / fails / completes a level and reconstruct the full journey (distinguish by the `state` param; add per-attempt detail via `levelData`). The one-shot per-level `level_<N>_completed` event (fired the first time each level is completed) is retained.
+
 ## [1.0.10] - 2026-06-29
 
 ### Added
