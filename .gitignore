@@ -16,6 +16,3 @@
 
 # ... except the GameLyftSDK package
 !/Assets/GameLyftSDK/
-
-# Local tool settings
-.claude/
