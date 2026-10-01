@@ -1,440 +1,135 @@
-GameLyft SDK — Slim Analytics
-==============================
+GameLyft SDK
+============
 
-A small Firebase-only analytics layer with persistent event queueing,
-FTUE / level progression / ad-fill / IAP tracking, impression-level revenue
-reporting for AdMob and AppLovin MAX, and one-shot install attribution
-('mmp_install') from Solar Engine, AppsFlyer, Adjust, Singular, and Tenjin.
+One call per event, delivered to every platform you tick: Firebase, AppsFlyer, Adjust,
+Solar Engine, Singular and Airbridge. The SDK does not replace those SDKs — your game imports
+and initializes them as usual; GameLyft sends its events through them.
 
-Sends events EXCLUSIVELY to Firebase Analytics. Does not touch any
-other SDK except to read attribution data from MMPs you opt into.
-You bring your own Firebase init.
-
-------------------------------------------------------------
-PREREQUISITES
-------------------------------------------------------------
-
-Your project must already have these SDKs imported. GameLyft SDK
-does NOT install them for you.
-
-REQUIRED:
-  - Firebase Unity SDK (at minimum: Firebase.App + Firebase.Analytics)
-    https://firebase.google.com/docs/unity/setup
-
-OPTIONAL (only if you want the corresponding integration):
-  - Google Mobile Ads Unity SDK
-    Required when GAMELYFT_ADMOB is defined.
-    https://developers.google.com/admob/unity/quick-start
-
-  - AppLovin MAX Unity SDK
-    Required when GAMELYFT_APPLOVIN is defined.
-    https://dash.applovin.com/documentation/mediation/unity/getting-started/integration
-
-  - Solar Engine Unity SDK
-    Required when GAMELYFT_SOLAR_ENGINE is defined.
-    https://help.solar-engine.com/en/docs/Unity-SDK-Integration-Guide
-
-  - AppsFlyer Unity SDK
-    Required when GAMELYFT_APPSFLYER is defined.
-    https://dev.appsflyer.com/hc/docs/install-ios-unity-plugin
-
-  - Adjust Unity SDK
-    Required when GAMELYFT_ADJUST is defined.
-    https://dev.adjust.com/en/sdk/unity/
-
-  - Singular Unity SDK
-    Required when GAMELYFT_SINGULAR is defined.
-    https://support.singular.net/hc/en-us/articles/360037635452-Unity-SDK-Integration-Guide
-
-  - Tenjin Unity SDK
-    Required when GAMELYFT_TENJIN is defined.
-    https://github.com/tenjin/tenjin-unity-sdk
-
-If you enable a toggle in Settings but haven't imported the matching
-SDK, the corresponding integration code will fail to compile. Disable
-the toggle to drop the dependency.
-
-You must call Firebase.FirebaseApp.CheckAndFixDependenciesAsync()
-yourself (either manually, or let Auto Initialize wait for it).
+  - Every event is written to disk first, then delivered to each ticked platform once that
+    platform's SDK has started and the device is online. Nothing is lost on a crash, a quit or
+    no network; the game never waits.
+  - Every event carries gl_eid (unique id), gl_ts (event time, Unix seconds) and gl_sid
+    (session id). Event names and parameters: GL_EVENT_CATALOG.csv in the SDK repository.
+  - Engagement (gl_engagement) is measured by the GameLyft prefab.
+  - All calls are safe from any thread and before initialization.
 
 ------------------------------------------------------------
 SETUP
 ------------------------------------------------------------
 
-1. Import this package into your Unity project.
+1. Import the package (Package Manager → Add package from git URL:
+   https://github.com/GameLyft/GameLyftSDK.git?path=Assets/GameLyftSDK).
 
-2. Open  Tools → GameLyft → Settings  and tick whichever integrations
-   your project uses:
+2. Tools → GameLyft → Settings:
+     Destinations   tick each platform to send events to. A platform is selectable only
+                    when its SDK is in the project.
+     Ad mediation   tick AdMob and/or AppLovin MAX to enable AdRevenue.Report(...).
+     Level milestones (optional) up to 10 level numbers; completing one fires
+                    gl_level_<N>_completed once per install (for MMP campaign optimisation).
+     Adjust event tokens (when Adjust is ticked) the token of each SDK event you want in
+                    Adjust; leave empty to skip that event for Adjust.
+   Press Apply.
 
-   MEDIATION (impression-level ad revenue):
-   - AdMob Mediation         (writes GAMELYFT_ADMOB)
-   - AppLovin MAX Mediation  (writes GAMELYFT_APPLOVIN)
+3. Tools → GameLyft → Add GameLyft Prefab to Scene, in the FIRST scene of the game (the one
+   loaded once per launch, usually the loading scene, Build Settings index 0). The prefab
+   initializes the SDK, survives scene loads and measures engagement.
 
-   MMP (install attribution → 'mmp_install' Firebase event):
-   - Solar Engine MMP        (writes GAMELYFT_SOLAR_ENGINE)
-   - AppsFlyer MMP           (writes GAMELYFT_APPSFLYER)
-   - Adjust MMP              (writes GAMELYFT_ADJUST)
-   - Singular MMP            (writes GAMELYFT_SINGULAR)
-   - Tenjin MMP              (writes GAMELYFT_TENJIN)
+4. Initialize Firebase / AppsFlyer / Adjust / … as you already do, then tell GameLyft each one is
+   ready. Until then that platform's events wait on disk (nothing is lost). GameLyft never probes
+   those SDKs itself — probing Firebase while its dependency check runs throws
+   "Don't call Firebase functions before CheckDependencies has finished".
 
-   Each toggle defines its scripting symbol so the matching integration
-   code compiles in. Toggle off → code excluded → no SDK dependency.
+     FirebaseApp.CheckAndFixDependenciesAsync().ContinueWith(t => {
+         if (t.Result == DependencyStatus.Available) GameLyftAnalytics.MarkReady(GLDestination.Firebase);
+     });
+     AppsFlyer.startSDK();          GameLyftAnalytics.MarkReady(GLDestination.AppsFlyer);
+     Adjust.InitSdk(adjustConfig);  GameLyftAnalytics.MarkReady(GLDestination.Adjust);
+     // Solar Engine: in its init-completed callback (code 0), or right after initSeSdk()
+     GameLyftAnalytics.MarkReady(GLDestination.SolarEngine);
+     // Singular: after initializing it
+     GameLyftAnalytics.MarkReady(GLDestination.Singular);
+     // Airbridge starts natively from its settings: mark it at app start
+     GameLyftAnalytics.MarkReady(GLDestination.Airbridge);
 
-3. Pick ONE of these two initialization styles:
-
-   (a) AUTOMATIC — tick "Auto Initialize" in Tools → GameLyft → Settings.
-       The SDK polls for Firebase readiness at app start and calls
-       Initialize() for you. No code changes required. Times out after
-       5 minutes if Firebase never comes up.
-
-   (b) MANUAL — leave Auto Initialize OFF and call Initialize() yourself
-       once Firebase is ready:
-
-       var task = Firebase.FirebaseApp.CheckAndFixDependenciesAsync();
-       task.ContinueWith(t =>
-       {
-           if (t.Result == Firebase.DependencyStatus.Available)
-               GameLyft.Sdk.GameLyftAnalytics.Initialize();
-       });
-
-   Both can coexist — Initialize() is idempotent. If both fire, the
-   second silently returns.
+   MarkReady is safe from any thread. In Test Mode, a ticked platform that is still not marked
+   after 60 seconds is reported.
 
 ------------------------------------------------------------
-USAGE — EVENTS
+EVENTS
 ------------------------------------------------------------
 
 using GameLyft.Sdk;
-using System.Collections.Generic;
 
-// Generic event
-GameLyftAnalytics.TrackEvent("button_clicked", new Dictionary<string, object>
-{
-    { "screen", "main_menu" },
-    { "button", "play" }
-});
+// Custom event. Pass the Adjust token to also send it to Adjust (Adjust only accepts events
+// created in its dashboard); without it the event goes to every other ticked platform.
+GameLyftAnalytics.TrackEvent("shop_opened", new Dictionary<string, object> { { "tab", "coins" } });
+GameLyftAnalytics.TrackEvent("shop_opened", parameters, adjustToken: "abc123");
 
-// FTUE funnel step
-GameLyftAnalytics.TrackFTUE(1, "tutorial_intro", FTUEState.ftue_start);
-GameLyftAnalytics.TrackFTUE(1, "tutorial_intro", FTUEState.ftue_complete);
-
-// Level progression (auto-deduped per level + state)
+// Level — fires gl_level on EVERY call (starts, fails, retries are all counted).
 GameLyftAnalytics.TrackLevelProgression(5, LevelState.level_start);
 GameLyftAnalytics.TrackLevelProgression(5, LevelState.level_complete,
-    new Dictionary<string, object>
-    {
-        { "score", 12500 },
-        { "stars", 3 }
-    });
+    new Dictionary<string, object> { { "score", 12500 }, { "stars", 3 } });
 
-// Ad fill tracking — call at placement time, before/instead of showing
-if (myAdSdk.IsInterstitialReady())
-{
-    GameLyftAnalytics.TrackAdFill(GLAdFormat.Interstitial, "level_complete", GLAdResult.Available);
-    myAdSdk.ShowInterstitial();
-}
-else
-{
-    GameLyftAnalytics.TrackAdFill(GLAdFormat.Interstitial, "level_complete", GLAdResult.NotAvailable);
-}
+// Onboarding step — gl_ftue
+GameLyftAnalytics.TrackFTUE(1, "tutorial_intro", FTUEState.ftue_complete);
 
-// In-app purchase — call after the receipt has been validated. Fires 'gl_purchase'.
-GameLyftAnalytics.TrackPurchase(
-    productId: product.definition.id,
-    currency:  product.metadata.isoCurrencyCode,
-    revenue:   (double)product.metadata.localizedPrice,
-    productName: "Coin Pack — Small");  // optional
+// Was an ad available when the game asked? — gl_ad_fill
+GameLyftAnalytics.TrackAdFill(GLAdFormat.Interstitial, "level_complete", GLAdResult.Available);
 
-// Session count (auto-attached to every event as 'session' param at flush time)
-int n = GameLyftAnalytics.SessionCount;
+// Validated purchase — gl_purchase
+GameLyftAnalytics.TrackPurchase(product.definition.id, product.metadata.isoCurrencyCode,
+    (double)product.metadata.localizedPrice, "Coin Pack - Small");
 
 ------------------------------------------------------------
-USAGE — AD REVENUE
+AD REVENUE  (gl_ad_impression)
 ------------------------------------------------------------
 
-// AdMob impression-level revenue (only available if GAMELYFT_ADMOB is on).
-// Fires a single 'gl_ad_impression' Firebase event.
-interstitialAd.OnAdPaid += (adValue) =>
-{
-    GameLyftAnalytics.AdRevenue.Report(
-        adValue,
-        interstitialAd.GetResponseInfo(),
-        "interstitial",
-        interstitialAd.GetAdUnitID());
-};
+// AdMob (Ad mediation → AdMob)
+ad.OnAdPaid += v => GameLyftAnalytics.AdRevenue.Report(v, ad.GetResponseInfo(), "interstitial", ad.GetAdUnitID());
 
-// AppLovin MAX revenue (only available if GAMELYFT_APPLOVIN is on).
-// Fires the same 'gl_ad_impression' schema so dashboards stay unified.
-MaxSdkCallbacks.Interstitial.OnAdRevenuePaidEvent += (adUnitId, adInfo) =>
-{
-    GameLyftAnalytics.AdRevenue.Report(adInfo);
-};
+// AppLovin MAX (Ad mediation → AppLovin MAX)
+MaxSdkCallbacks.Interstitial.OnAdRevenuePaidEvent += (unit, info) => GameLyftAnalytics.AdRevenue.Report(info);
 
-// For mediations without first-class support (ironSource, Unity Ads, TopOn, etc.)
-// use the low-level Log() primitive with the same 'gl_ad_impression' schema:
-GameLyftAnalytics.AdRevenue.Log(
-    platform: "ironsource",
-    source:   "vungle",
-    format:   "rewarded",
-    adUnit:   "my_unit_id",
-    currency: "USD",
-    revenue:  0.014);
+// Any other mediation
+GameLyftAnalytics.AdRevenue.Log("ironsource", "vungle", "rewarded", "unit_x", "USD", 0.014);
 
 ------------------------------------------------------------
-USAGE — MMP / INSTALL ATTRIBUTION
+ENGAGEMENT  (gl_engagement)
 ------------------------------------------------------------
 
-When any MMP toggle is on, the SDK fires a one-shot 'mmp_install'
-Firebase event with these 4 fields:
+The prefab fires gl_engagement { session_number, session_id, time_ms }, where time_ms is the
+total FOREGROUND time of this session: at session start (0), every 30 seconds, and when the app
+goes to the background. A session is one app launch. Sessions per user = distinct session_id;
+session length = the largest time_ms of the session.
 
-  source    — acquisition channel (defaults to "Organic" if missing)
-  campaign  — campaign name
-  ad_set    — ad set / ad group name
-  creative  — creative / ad name
-
-The event is guarded with a PlayerPrefs flag — fires AT MOST ONCE per
-device install regardless of how many MMP toggles are enabled. Whichever
-MMP delivers attribution first wins; the rest no-op.
-
-  -- SOLAR ENGINE: zero-config --------------------------------------
-
-  Tick the Solar Engine MMP toggle. The SDK polls for the SE Analytics
-  singleton, then calls getAttribution() every 2s within a 3-minute
-  budget. On non-null attribution, fields are mapped:
-
-    channel_name     → source
-    adgroup_name     → campaign
-    adplan_name      → ad_set
-    adcreative_name  → creative
-
-  -- ADJUST: zero-config --------------------------------------------
-
-  Tick the Adjust MMP toggle. The SDK polls for the AdjustSdk.Adjust
-  singleton, then calls Adjust.GetAttribution() every 2s within the
-  3-minute budget. On the first non-null AdjustAttribution:
-
-    Network   → source
-    Campaign  → campaign
-    Adgroup   → ad_set
-    Creative  → creative
-
-  Caveat: Adjust.GetAttribution short-circuits to a no-op in Unity
-  Editor by Adjust SDK design. Test on device for real attribution.
-
-  -- TENJIN: zero-config --------------------------------------------
-
-  Tick the Tenjin MMP toggle. The SDK observes the BaseTenjin singleton
-  your existing Tenjin.getInstance(apiKey) call creates, then invokes
-  GetAttributionInfo() within the 3-minute budget. On the first
-  populated callback:
-
-    ad_network     → source     (with "(not set)" → null → falls back
-                                  to "Organic" via the surface default)
-    campaign_name  → campaign
-    (no equivalent) → ad_set    (Tenjin has no first-class adgroup)
-    creative_name  → creative
-
-  Schema is documented by Tenjin so the mapping is authoritative.
-  Requires that you call Tenjin.getInstance(apiKey) somewhere in your
-  app (which you do as part of normal Tenjin integration). If Tenjin
-  init is delayed past ~3 minutes of foreground time, this session is
-  skipped — the next session retries.
-
-  -- APPSFLYER: one-line consumer hookup ----------------------------
-
-  Tick the AppsFlyer MMP toggle, then add ONE line to your existing
-  IAppsFlyerConversionData handler:
-
-      using AppsFlyerSDK;
-      using GameLyft.Sdk;
-
-      public class MyAppsFlyerHandler : MonoBehaviour, IAppsFlyerConversionData
-      {
-          public void onConversionDataSuccess(string conversionData)
-          {
-              AppsFlyer.AFLog("didReceiveConversionData", conversionData);
-              var dict = AppsFlyer.CallbackStringToDictionary(conversionData);
-              // add deferred deeplink logic here
-              AppsFlyerMmp.HandleConversionData(conversionData);  // ← this line
-          }
-          public void onConversionDataFail(string error) { /* ... */ }
-          public void onAppOpenAttribution(string data)   { /* ... */ }
-          public void onAppOpenAttributionFailure(string error) { /* ... */ }
-      }
-
-  Field mapping:
-
-    media_source  → source
-    campaign      → campaign
-    adset         → ad_set
-    af_ad         → creative
-
-  HandleConversionData() also has an overload taking the parsed
-  Dictionary<string, object> if you've already called
-  AppsFlyer.CallbackStringToDictionary upstream.
-
-  -- SINGULAR: zero-config (with caveats) ---------------------------
-
-  Tick the Singular MMP toggle. The SDK auto-registers a
-  SingularDeviceAttributionCallbackHandler at app launch.
-
-  IMPORTANT: SingularSDK.SetSingularDeviceAttributionCallbackHandler
-  is single-slot. Enabling Singular MMP REPLACES any handler your
-  project already registered. Move that handler's logic into the
-  diagnostic event below or fork SingularMmp.cs if you need it.
-
-  Field mapping is BEST-GUESS — Singular's on-device callback schema
-  is not publicly documented. Keys below are based on Singular's REST
-  Attribution API:
-
-    network         → source
-    campaign_name   → campaign
-    (no equivalent) → ad_set     (no first-class adgroup on device side)
-    creative_name   → creative
-
-  Verify against the singular_attribution diagnostic event after the
-  first production install and update the mapping in SingularMmp.cs
-  if needed.
-
-  Caveat: on iOS with ATT denied, Singular's deviceAttributionCallback
-  often does not fire (SKAN-only flow). For iOS attribution coverage
-  AppsFlyer or Adjust tend to be more reliable client-side.
-
-  -- OTHER MMPS (Branch, Kochava, ...) ------------------------------
-
-  Same pattern as AppsFlyer — extract source / campaign / ad_set /
-  creative from your MMP's attribution payload and call directly:
-
-      GameLyftAnalytics.Mmp.LogInstall(source, campaign, adSet, creative);
-
-  The shared one-shot guard handles dedup automatically.
-
-  -- DIAGNOSTIC EVENTS (TEMPORARY) ----------------------------------
-
-  Singular, AppsFlyer, Adjust, and Tenjin each emit an additional
-  diagnostic Firebase event alongside 'mmp_install' so the actual
-  schema can be confirmed via BigQuery:
-
-    singular_attribution    — full raw Singular payload
-    appsflyer_attribution   — full raw AppsFlyer conversionData payload
-    adjust_attribution      — flattened AdjustAttribution fields
-    tenjin_attribution      — full raw Tenjin attributionInfoData payload
-
-  Each event flattens its native attribution payload into Firebase
-  parameters with GA4 limits enforced (capped at 24 keys + 1 "_dropped"
-  count, value truncation at 100 chars, key sanitization). Once you've
-  confirmed the keys in production, harden the field mappings in the
-  per-MMP scripts and remove the LogAttributionSchema() calls.
-
-  Solar Engine isn't included because its schema was confirmed when
-  the integration was built.
+It runs on real time (Time.timeScale = 0 does not stop it) and pauses in the background.
+Full-screen ads pause the app too, but that time keeps counting:
+  - AppLovin MAX: automatic.
+  - AdMob: call these from your full-screen ads' callbacks:
+        ad.OnAdFullScreenContentOpened += () => GameLyftAnalytics.AdStarted();
+        ad.OnAdFullScreenContentClosed += () => GameLyftAnalytics.AdClosed();
+        ad.OnAdFullScreenContentFailed += e  => GameLyftAnalytics.AdClosed();
 
 ------------------------------------------------------------
-NOTES
+HOW EACH PLATFORM RECEIVES EVENTS
 ------------------------------------------------------------
 
-- Events fired before Initialize() are queued and dispatched once
-  Initialize() is called.
-- The queue is persisted to PlayerPrefs and survives app pause/quit.
-- Failed Firebase sends are retried with backoff.
-- TrackLevelProgression de-duplicates per (level, state) pair so the
-  same level_complete is never reported twice.
-- The 'session' parameter is injected at flush time, not queue time —
-  events queued before Initialize() (or carried over from a prior run)
-  report the live session count rather than a stale 0.
-- 'mmp_install' is one-shot per device install via PlayerPrefs guard
-  (key: GLSdk_mmp_install_sent). To force re-fire during testing,
-  clear PlayerPrefs or delete that specific key.
+  Firebase      LogEvent. GA4 limits applied: name rules, 25 parameters (the 3 standard ones
+                always kept), 40-char names, 100-char values.
+  AppsFlyer     sendEvent; parameter values as strings.
+  Adjust        TrackEvent with the event's token (Settings table / adjustToken); events without
+                a token are skipped for Adjust. Parameters as callback parameters.
+                DeduplicationId = gl_eid.
+  Solar Engine  track(name, attributes).
+  Singular      Event(attributes, name).
+  Airbridge     TrackEvent(name, null, custom attributes).
+
+Events are adapted to each platform's limits, never dropped. Test Mode shows each adaptation once.
 
 ------------------------------------------------------------
-TEST MODE
+DEBUG
 ------------------------------------------------------------
 
-Tools → GameLyft → Settings has a "Test Mode" toggle.
-
-When OFF (default, use for production):
-  - SDK integration warnings go to Debug.LogWarning only.
-
-When ON (use during integration / QA):
-  - Warnings ALSO appear as a stacked on-screen IMGUI panel in the
-    top-left corner. Each warning has an × close button. A "Clear All"
-    button drops the whole stack.
-
-Warnings are fired for:
-  - TrackEvent/Track* called before Initialize()
-    (suppressed automatically while Auto Initialize is polling)
-  - Initialize() called when Firebase does not appear to be ready
-  - AdRevenue.Report called with null AdValue / AdInfo
-  - Any event with more than 25 parameters (GA4 server-side limit)
-  - Auto Initialize timed out waiting for Firebase (5 min)
-
-Turn Test Mode OFF before shipping — the overlay is a developer tool.
-
-------------------------------------------------------------
-PUBLIC API
-------------------------------------------------------------
-
-namespace GameLyft.Sdk
-{
-    public static class GameLyftAnalytics
-    {
-        public static bool IsInitialized { get; }
-        public static int  SessionCount  { get; }
-
-        public static readonly AdRevenueSurface AdRevenue;
-        public static readonly MmpSurface       Mmp;
-
-        public static void Initialize();
-        public static void TrackEvent(string eventName, Dictionary<string, object> parameters = null);
-        public static void TrackFTUE(int stepNumber, string stepName, FTUEState state);
-        public static void TrackLevelProgression(int levelNumber, LevelState state, Dictionary<string, object> levelData = null);
-        public static void TrackAdFill(GLAdFormat adFormat, string placement, GLAdResult result);
-        public static void TrackPurchase(string productId, string currency, double revenue, string productName = null);
-
-        public sealed class AdRevenueSurface
-        {
-            // Low-level — use for mediations without first-class support.
-            public void Log(string platform, string source, string format,
-                            string adUnit, string currency, double revenue);
-        }
-
-        public sealed class MmpSurface
-        {
-            // Shared low-level entry point used by every MMP integration.
-            // Fires 'mmp_install' Firebase event ONCE per device install
-            // (subsequent calls no-op via PlayerPrefs guard).
-            public void LogInstall(string source, string campaign, string adSet, string creative);
-
-            // True if 'mmp_install' has already been fired on this device.
-            public bool IsInstallReported { get; }
-
-            // Diagnostic — emit a raw attribution payload as a Firebase event for
-            // schema discovery via BigQuery. Used internally by the per-MMP
-            // integrations (singular_attribution, appsflyer_attribution,
-            // adjust_attribution, tenjin_attribution events). Public so consumers
-            // can capture an unmodeled MMP's schema the same way.
-            public void LogAttributionSchema(string firebaseEventName, Dictionary<string, object> attributionPayload);
-        }
-    }
-
-    // Extension methods on AdRevenue (attached to the surface)
-
-    // Available only when GAMELYFT_ADMOB is defined.
-    public static void Report(this GameLyftAnalytics.AdRevenueSurface s,
-        AdValue adValue, ResponseInfo responseInfo, string adFormat, string adUnitId);
-
-    // Available only when GAMELYFT_APPLOVIN is defined.
-    public static void Report(this GameLyftAnalytics.AdRevenueSurface s, MaxSdkBase.AdInfo adInfo);
-
-    // AppsFlyer integration helper. Available only when GAMELYFT_APPSFLYER is defined.
-    public static class AppsFlyerMmp
-    {
-        public static void HandleConversionData(string conversionDataJson);
-        public static void HandleConversionData(Dictionary<string, object> conversionData);
-    }
-
-    public enum FTUEState   { ftue_start, ftue_complete }
-    public enum LevelState  { level_start, level_complete, level_fail, level_skip, level_restart, level_pause, level_resume }
-    public enum GLAdFormat  { Banner, Mrec, Interstitial, Rewarded, AppOpen }
-    public enum GLAdResult  { Available, NotAvailable }
-}
+Test Mode      SDK warnings on an on-screen panel too.
+Verbose        every event tracked and delivered, in the console ([GameLyft] prefix).
+Turn both OFF before shipping. The queue file is <persistentDataPath>/GameLyft/queue.log.

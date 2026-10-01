@@ -31,4 +31,15 @@ namespace GameLyft.Sdk
         Available,
         NotAvailable
     }
+
+    /// <summary>Platforms the SDK delivers events to. See GameLyftAnalytics.MarkReady.</summary>
+    public enum GLDestination
+    {
+        Firebase,
+        AppsFlyer,
+        Adjust,
+        SolarEngine,
+        Singular,
+        Airbridge
+    }
 }

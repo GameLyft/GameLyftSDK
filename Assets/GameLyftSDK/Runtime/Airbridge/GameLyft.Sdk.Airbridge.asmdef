@@ -1,8 +1,9 @@
 {
-    "name": "GameLyft.Sdk.Tenjin",
+    "name": "GameLyft.Sdk.Airbridge",
     "rootNamespace": "GameLyft.Sdk",
     "references": [
-        "GameLyft.Sdk"
+        "GameLyft.Sdk",
+        "AirbridgeSDK"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -11,7 +12,7 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [
-        "GAMELYFT_TENJIN"
+        "GAMELYFT_AIRBRIDGE"
     ],
     "versionDefines": [],
     "noEngineReferences": false

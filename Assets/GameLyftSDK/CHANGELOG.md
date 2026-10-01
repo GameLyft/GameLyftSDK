@@ -4,96 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.0.11] - 2026-08-06
+## [1.0.0] - 2026-10-01
 
-### Changed
-
-- **`TrackLevelProgression` no longer dedupes `level_progression` — it now fires on every call.** Previously the method deduped per (level, state) via PlayerPrefs, so each milestone (e.g. `level_5` + `level_fail`) reported at most once per install — which made it impossible to count attempts. It now emits `level_progression` on **every** call with `level_number` + `state`, so you can count how many times each player starts / fails / completes a level and reconstruct the full journey (distinguish by the `state` param; add per-attempt detail via `levelData`). The one-shot per-level `level_<N>_completed` event (fired the first time each level is completed) is retained.
-
-## [1.0.10] - 2026-06-29
+First release of the GameLyft SDK as an events helper: one call per event, delivered to every
+platform ticked in Settings, through a durable on-disk queue, with built-in engagement.
 
 ### Added
-
-- **AppsFlyer device ID (AFID) reporting.** When the AppsFlyer MMP is enabled (`GAMELYFT_APPSFLYER`), the SDK now fires a one-shot **`appsflyer_id`** Firebase event carrying AppsFlyer's unique device ID (`AppsFlyer.getAppsFlyerId()` — the same value as the *AppsFlyer ID* column in raw-data / Pull API exports), so Firebase events can be joined to AppsFlyer's raw data on the AFID. It runs **independently of conversion data**: a dedicated bootstrap (`AppsFlyerIdReporter`) polls `getAppsFlyerId()` until it returns a non-empty value — the SDK-side signal that AppsFlyer has initialized (it returns `""` before `initSDK`/`startSDK`) — then reports the AFID through the standard event queue. Fires once per install (PlayerPrefs-guarded, set only after a successful send, so a launch where AppsFlyer never initializes simply retries next session). No new files or assemblies — it lives alongside `AppsFlyerMmp` in the existing AppsFlyer sub-package.
-
-## [1.0.9] - 2026-06-24
-
-### Fixed
-
-- **Attribution-schema diagnostic markers were rejected by Firebase on-device.** The split markers introduced in 1.0.8 were named `_part` / `_parts`, but GA4 rejects event-parameter names that start with an underscore (`Name must start with a letter` — confirmed in device logcat), so the part/total markers were silently dropped. Renamed to **`gl_part` / `gl_parts`**. Also hardened `SanitizeKey`: a payload key beginning with a digit was previously coerced to `_<key>`, which Firebase would likewise reject — it now prefixes a letter so every sanitized key starts with a letter. The split events and their payload keys were always emitted correctly; only the two markers were affected. **Query note:** re-stitch parts via `gl_part` / `gl_parts` (not `_part` / `_parts`).
-
-## [1.0.8] - 2026-06-23
-
-### Changed
-
-- **MMP attribution-schema diagnostics now emit the FULL payload, split across numbered events.** The `*_attribution` discovery dumps (`appsflyer_attribution`, `tenjin_attribution`, `singular_attribution`, `adjust_attribution`) previously capped at 22 keys per event and discarded the remainder into a `_dropped` counter. On large payloads — AppsFlyer's Google conversion data is ~40 keys — meaningful attribution keys (e.g. `campaign`) could silently fall past the cap and never reach BigQuery, even though `mmp_install` itself read and mapped them correctly (it reads keys directly, with no cap). `LogAttributionSchema` now splits the entire payload across as many `<name>_1`, `<name>_2`, … events as needed — 21 payload keys each, within GA4's 25-param limit — so **nothing is dropped**. Every part carries `_part` (1-based) and `_parts` (total), so completeness is verifiable and the full payload can be re-stitched in BigQuery by grouping the parts on `user_pseudo_id` + `event_timestamp`. **Querying note:** the diagnostic event name now always carries a numeric suffix — use `event_name LIKE '<name>_%'` (e.g. `appsflyer_attribution_1`) instead of the bare `<name>`. Affects the discovery diagnostics only; `mmp_install` and all production events are unchanged.
-
-## [1.0.7] - 2026-06-15
-
-### Fixed
-
-- **Tenjin attribution now actually fires.** `TenjinMmp` located the consumer's `BaseTenjin` instance with `FindObjectOfType` / `FindAnyObjectByType`, but Tenjin's SDK creates its "Tenjin" GameObject with `HideFlags.HideAndDontSave` (`Tenjin.cs`) — and those APIs skip objects with that hide flag (they only return normal active scene objects). So the instance was never found, Phase 1 timed out, and `mmp_install` / `tenjin_attribution` never fired (the bootstrap itself ran — that was the 1.0.6 fix — it just bailed at the scene find). Switched to `Resources.FindObjectsOfTypeAll`, which DOES return hidden / `DontSave` objects. Only Tenjin was affected: AppsFlyer uses the PlayerPrefs bridge (no scene find) and Solar Engine's singleton isn't hidden.
-
-## [1.0.6] - 2026-06-14
-
-### Fixed
-
-- **MMP modules are no longer stripped from IL2CPP / device builds.** Every MMP integration is reached only through its `[RuntimeInitializeOnLoadMethod]` bootstrap, with no static reference from consumer code. Managed code stripping (on by default for IL2CPP) removes whole assemblies that nothing references — so on device the linker dropped the MMP DLL and its bootstrap never ran, even though it compiled and ran fine in the editor (which doesn't strip). This hit `GameLyft.Sdk.Tenjin` outright (referenced by nothing) and was latent for the rest (`GameLyft.Sdk.AppsFlyer` survived only when the consumer calls its `HandleConversionData`; Solar Engine / Adjust / Singular would strip when enabled without a static reference). Added `[assembly: AlwaysLinkAssembly]` to all five MMP sub-assemblies so the linker always keeps them; once an assembly is kept, Unity roots its `RuntimeInitializeOnLoadMethod`. (Chosen over a `link.xml`: it's `defineConstraints`-safe — no "assembly not found" warning when a toggle is off — and adds no new asset/`.meta`.)
-
-## [1.0.5] - 2026-06-14
-
-### Fixed
-
-- **Tenjin MMP sub-assembly is now actually imported (follow-up to 1.0.4).** v1.0.4 shipped the `Runtime/Tenjin/` folder's *file* metas (`TenjinMmp.cs.meta`, `GameLyft.Sdk.Tenjin.asmdef.meta`) but omitted the **folder's own meta** (`Runtime/Tenjin.meta`). In an immutable (UPM) package Unity does not generate a missing folder meta, so it ignored the entire folder — the `GameLyft.Sdk.Tenjin` asmdef never imported or compiled, and the 1.0.4 fix didn't take effect. Added the missing folder meta. (Audited the rest of the package: every other file and folder already has a tracked `.meta`.)
-
-## [1.0.4] - 2026-06-14
-
-### Fixed
-
-- **Tenjin MMP now actually runs when the SDK is consumed as a UPM package.** The Tenjin module previously lived as a loose script at `Assets/GameLyftSDK/Tenjin/TenjinMmp.cs` with no asmdef — a layout that only compiles when the SDK is *vendored* into a project's `Assets/`. Imported as a UPM git package, Unity does **not** add loose package scripts to `Assembly-CSharp`, so `TenjinMmp` was never compiled, its `BeforeSceneLoad` bootstrap never ran, and Tenjin attribution (`mmp_install` / `tenjin_attribution`) silently never fired (no `TenjinMmp enabled…` log even with `GAMELYFT_TENJIN` set). It now lives in its own package sub-assembly **`GameLyft.Sdk.Tenjin`** (`Runtime/Tenjin/`, `defineConstraints: GAMELYFT_TENJIN`) and resolves `BaseTenjin` + `GetAttributionInfo` via **reflection** — so it compiles as part of the package without referencing `Assembly-CSharp` (which an asmdef cannot do), keeps the zero-consumer-code auto-poll, and degrades to a clean no-op (with a one-time warning) if the Tenjin SDK isn't present. The other MMPs were unaffected — each already has its own `Runtime/` sub-asmdef.
-
-## [1.0.3] - 2026-06-13
-
-### Added
-
-- **Verbose Logging** setting (*Tools → GameLyft → Settings → Debug*). When ON, the SDK prints detailed `[GameLyft]`-prefixed console logs of all activity: every event tracked (with parameters), queue enqueue + flush to Firebase (showing the exact params incl. injected `event_type`/`session`), level-progression dedupe skips, purchases (`gl_purchase`), ad-impression revenue (`gl_ad_impression`), MMP attribution lifecycle (poll start / found / timeout / `mmp_install` fired-or-skipped / `*_attribution` schema), persisted-queue restore, and send retries/persist errors. Backed by a new central `GLLog` logger: `Trace` is gated by the setting; lifecycle milestones (`Info`), warnings (`Warn`), and errors (`Error`) always log. Off by default — keep off in production (high volume).
-
-## [1.0.2] - 2026-06-13
-
-### Added
-
-- **One-click "Wire AppsFlyer Handler" button** in *Tools → GameLyft → Settings* (under the AppsFlyer MMP toggle). Injects the 3 PlayerPrefs bridge lines at the **start** of every `onConversionDataSuccess(string)` handler in the project (existing handler code untouched), delimited by `GAMELYFT_APPSFLYER_BRIDGE_BEGIN/END` markers so it is idempotent and reversible — an **Unwire** button removes exactly the injected block, and **Re-scan** refreshes status. Re-run after an AppsFlyer SDK upgrade overwrites the handler file. Backed by the Editor-only `AppsFlyerConversionWirer`.
-
-### Changed
-
-- **AppsFlyer MMP is now automatic.** `AppsFlyerMmp` became a `BeforeSceneLoad` MonoBehaviour that auto-polls PlayerPrefs for AppsFlyer's conversion payload and fires the one-shot `mmp_install` itself — matching the auto-start pattern of every other MMP module (it was previously the *only* MMP requiring a manual `HandleConversionData(...)` call). The consumer's `onConversionDataSuccess` now just stashes the raw payload in PlayerPrefs (`AppsflyerGameLyftConversionData` + `isAppsflyerGameLyftConversionSet`), which crosses the AppsFlyer-SDK ↔ Assembly-CSharp asmdef boundary that a direct call cannot. PlayerPrefs persistence means a callback that lands after the poll window is still picked up on the next launch. `HandleConversionData(string)` / `(Dictionary)` remain public as a manual fallback.
-- Corrected the **AppsFlyer MMP** settings tooltip — it previously claimed the SDK called `AppsFlyer.getConversionData()` automatically after init, which was never implemented (the real path was a manual hookup). It now describes the PlayerPrefs auto-poll mechanism.
-
-## [1.0.1] - 2026-06-13
-
-### Changed
-
-- `event_type` is now injected on **every** Firebase event at flush time (alongside `session`) with the value `gl_analytics` — previously it was `progression_analytics` and only added by `TrackEvent`. This unifies the parameter across all SDK output (`gl_purchase`, `gl_ad_impression`, `mmp_install`, FTUE / level / ad-fill, and the `*_attribution` diagnostics). Events queued/persisted by 1.0.0 are rewritten with the new value on flush.
-- Settings editor (`Tools → GameLyft → Settings`): integration toggles are now **staged** behind an **Apply** button. Toggle multiple integrations, then Apply once to save the asset and update all scripting defines in a single recompile (previously each toggle wrote its define immediately, causing a recompile per click). Added a **Revert** button and per-toggle "(pending Apply)" indicators. Define writes are batched to one `SetScriptingDefineSymbols` call per build target.
-
-## [1.0.0] - 2026-05-06
-
-### Added
-
-- Initial release.
-- Firebase-only analytics core with persistent PlayerPrefs-backed event queue.
-- `TrackEvent`, `TrackFTUE`, `TrackLevelProgression`, `TrackAdFill`, `TrackPurchase` APIs.
-- `gl_purchase` Firebase event for in-app purchases (productId / currency / value / success / optional product_name).
-- Auto-deduplication for level progression events.
-- Auto Initialize option that polls for Firebase readiness.
-- Test Mode with on-screen IMGUI warning overlay.
-- Ad revenue: AdMob `Report` extension, AppLovin MAX `Report` extension, generic `Log` primitive — all firing the unified `gl_ad_impression` Firebase event.
-- MMP attribution (`mmp_install` event) with one-shot PlayerPrefs guard, sharing a single `Mmp.LogInstall(source, campaign, adSet, creative)` API across integrations:
-  - Solar Engine — auto-poll, zero-config
-  - AppsFlyer — one-line consumer hookup
-  - Adjust — auto-poll, zero-config
-  - Singular — auto-attaching callback handler
-  - Tenjin — auto-poll observer
-- Schema-discovery diagnostic events (`singular_attribution`, `appsflyer_attribution`, `adjust_attribution`, `tenjin_attribution`) for verifying MMP payloads in production.
-- `GAMELYFT_*` scripting defines per integration with sub-assembly isolation where the MMP SDK has its own asmdef.
-- Editor settings UI (`Tools → GameLyft → Settings`) with mediation, MMP, init, and debug toggles. Drift reconciliation in both `OnEnable` and `[InitializeOnLoadMethod]`.
+- **Destinations.** Tick Firebase and/or AppsFlyer, Adjust, Solar Engine, Singular, Airbridge in
+  Tools → GameLyft → Settings; every event is delivered to each through that platform's own SDK
+  (initialized by the game as usual). A platform can only be ticked when its SDK is in the project.
+- **`GameLyftAnalytics.MarkReady(GLDestination)`.** The game declares each platform initialized;
+  its events are delivered from then on. The SDK never probes Firebase or the MMP SDKs (probing
+  `FirebaseApp.DefaultInstance` while `CheckAndFixDependenciesAsync` runs throws
+  `Don't call Firebase functions before CheckDependencies has finished`).
+- **Durable queue.** Every event is appended to `persistentDataPath/GameLyft/queue.log` on a
+  background thread the moment it is tracked, then delivered per destination once that platform
+  is marked ready and the device is online. At-least-once delivery; a crash resend carries the
+  same `gl_eid`. Undelivered events survive restarts and are never dropped.
+- **Standard parameters on every event:** `gl_eid` (10-char unique id), `gl_ts` (event time,
+  Unix seconds), `gl_sid` (8-char session id).
+- **GameLyft prefab** (`Runtime/Prefabs/GameLyft.prefab`; Tools → GameLyft → Add GameLyft Prefab
+  to Scene) for the first scene: initializes the SDK and hosts **GL_Engagement**, which fires
+  `gl_engagement { session_number, session_id, time_ms }` at session start, every 30 s and on
+  background — total foreground ms, on real time (unaffected by `Time.timeScale`). Full-screen ad
+  time stays counted: automatic for AppLovin MAX; `GameLyftAnalytics.AdStarted()` / `AdClosed()`
+  for AdMob. A "Debug Logs" checkbox on the component logs every step.
+- **Events:** `TrackEvent(name, params, adjustToken)`, `TrackLevelProgression` (`gl_level`, every
+  call), `TrackFTUE` (`gl_ftue`), `TrackAdFill` (`gl_ad_fill`), `TrackPurchase` (`gl_purchase`),
+  `AdRevenue.Report` for AdMob / AppLovin MAX and `AdRevenue.Log` for others (`gl_ad_impression`).
+- **Level milestones** (Settings, up to 10 levels): `gl_level_<N>_completed` once per install.
+- **Adjust tokens:** a token table for the SDK's events in Settings; `adjustToken` for custom events.
+- **Per-destination validation** (GA4 limits for Firebase, string values for AppsFlyer, …): events
+  are adapted, never dropped; Test Mode warns once per adaptation.
+- All public calls are thread-safe and may be made before initialization.
+- Event catalog: `GL_EVENT_CATALOG.csv` at the repository root.

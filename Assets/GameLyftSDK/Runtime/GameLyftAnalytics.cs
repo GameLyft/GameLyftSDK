@@ -4,484 +4,242 @@ using UnityEngine;
 namespace GameLyft.Sdk
 {
     /// <summary>
-    /// GameLyft slim analytics SDK. Sends events exclusively to Firebase Analytics
-    /// via an internal persistent queue.
+    /// GameLyft SDK: one call per event, delivered to every destination ticked in
+    /// Tools → GameLyft → Settings (Firebase, AppsFlyer, Adjust, Solar Engine, Singular, Airbridge).
     ///
-    /// USAGE:
-    ///   1. Initialize Firebase yourself (Firebase.FirebaseApp.CheckAndFixDependenciesAsync).
-    ///   2. After Firebase is ready, call GameLyftAnalytics.Initialize() ONCE.
-    ///   3. Call TrackEvent / TrackFTUE / TrackLevelProgression / ReportAdRevenue freely.
+    /// Every event is written to a durable on-disk queue first and delivered to each destination
+    /// once that SDK has started and the device is online, so none is lost. Every event carries
+    /// gl_eid (unique id), gl_ts (event time, Unix seconds) and gl_sid (session id).
     ///
-    /// All calls before Initialize() are queued and drained automatically once
-    /// Initialize() is called.
+    /// Put the GameLyft prefab (GameLyftSDK/Runtime/Prefabs/GameLyft.prefab) in the first scene:
+    /// it initializes the SDK and measures engagement (gl_engagement). Calls are safe from any
+    /// thread and before initialization — they are queued.
     /// </summary>
     public static class GameLyftAnalytics
     {
-        private const string SESSION_KEY = "GLSdk_session";
-        private const int GA4_MAX_PARAMS = 25;
+        private const int MAX_MILESTONES = 10;
+        private const string MILESTONE_SENT_KEY = "GLSdk_ms_";
 
         private static bool _isInitialized;
-        internal static bool _autoInitPolling;
+        private static GameLyftSettings _settings;
 
-        /// <summary>
-        /// Ad revenue sub-surface. Mediation-specific DLLs (GameLyft.Sdk.AdMob, GameLyft.Sdk.Max)
-        /// attach strongly-typed Report() methods here via extension methods. You can also call
-        /// Log() directly for unsupported mediations.
-        ///
-        ///   GameLyftAnalytics.AdRevenue.Log("ironsource", "vungle", "rewarded", "unit_x", "USD", 0.014);
-        ///   GameLyftAnalytics.AdRevenue.Report(adValue, responseInfo, "interstitial", adUnit);  // AdMob
-        ///   GameLyftAnalytics.AdRevenue.Report(adInfo);                                         // AppLovin MAX
-        /// </summary>
+        /// <summary>Ad revenue: AdMob / AppLovin MAX Report() overloads attach here; Log() for any other mediation.</summary>
         public static readonly AdRevenueSurface AdRevenue = new AdRevenueSurface();
 
-        /// <summary>
-        /// MMP (mobile measurement partner) sub-surface. Per-MMP integration scripts
-        /// (GameLyft.Sdk.SolarEngine, GameLyft.Sdk.AppsFlyer, GameLyft.Sdk.Adjust, ...)
-        /// extract source/campaign/ad_set/creative from their SDK's attribution payload
-        /// and call LogInstall(). Fires a one-shot 'mmp_install' Firebase event.
-        /// </summary>
-        public static readonly MmpSurface Mmp = new MmpSurface();
-
-        /// <summary>
-        /// Receiver type for ad revenue extension methods. Has no instance state — it's a
-        /// namespace-like marker that mediation DLLs can attach Report() methods to via
-        /// C# extension methods (since partial classes can't span assemblies).
-        /// </summary>
         public sealed class AdRevenueSurface
         {
             internal AdRevenueSurface() { }
 
-            /// <summary>
-            /// Low-level revenue primitive. Fires a 'gl_ad_impression' Firebase event with the
-            /// standard schema (ad_platform / ad_source / ad_format / ad_unit_name / currency /
-            /// value / platform / session). Use this for mediations not supported first-class
-            /// (ironSource, Unity Ads, TopOn, etc.). For AdMob or AppLovin MAX, prefer the
-            /// strongly-typed Report() overloads from the mediation sub-packages.
-            /// </summary>
-            public void Log(string platform, string source, string format,
-                string adUnit, string currency, double revenue)
+            /// <summary>Fires 'gl_ad_impression' (one per paid impression).</summary>
+            public void Log(string platform, string source, string format, string adUnit, string currency, double revenue)
             {
-                EnsureDispatcher();
-
-                // 'session' is injected at flush time by EventDispatcher so events queued
-                // pre-Initialize() (and persisted across runs) report the correct, current
-                // session number rather than 0 / a stale value.
-                var adParams = new List<EventDispatcher.QueuedParameter>
+                Emit("gl_ad_impression", new List<GLParam>
                 {
-                    EventDispatcher.StringParam("ad_platform", platform ?? ""),
-                    EventDispatcher.StringParam("ad_source", source ?? ""),
-                    EventDispatcher.StringParam("ad_format", format ?? ""),
-                    EventDispatcher.StringParam("ad_unit_name", adUnit ?? ""),
-                    EventDispatcher.StringParam("currency", currency ?? "USD"),
-                    EventDispatcher.DoubleParam("value", revenue),
-                    EventDispatcher.StringParam("platform", "gameLyft"),
-                };
-
-                GLLog.Trace("AdRevenue.Log gl_ad_impression " + DescribeParams(adParams));
-                EventDispatcher.Instance.LogEvent("gl_ad_impression", adParams);
+                    S("ad_platform", platform), S("ad_source", source), S("ad_format", format),
+                    S("ad_unit_name", adUnit), S("currency", string.IsNullOrEmpty(currency) ? "USD" : currency),
+                    D("value", revenue), S("platform", "gameLyft"),
+                }, null);
             }
         }
 
-        /// <summary>
-        /// MMP attribution receiver. Each MMP integration (Solar Engine, AppsFlyer, Adjust,
-        /// Singular, Tenjin, ...) extracts its own SDK's attribution into the 4 standard
-        /// fields and calls LogInstall(). One-shot guarded across runs so multiple MMPs in
-        /// the same project can't double-fire 'mmp_install' — whichever MMP delivers
-        /// attribution first wins, the rest no-op.
-        /// </summary>
-        public sealed class MmpSurface
-        {
-            private const string GUARD_KEY = "GLSdk_mmp_install_sent";
-
-            internal MmpSurface() { }
-
-            /// <summary>
-            /// Fires 'mmp_install' once per device install with the 4 standard attribution
-            /// fields. Subsequent calls (this run or any future run on the same device)
-            /// are silent no-ops thanks to the PlayerPrefs guard.
-            ///
-            /// Falls back to "Organic" when source is null/empty so dashboards never see a
-            /// blank acquisition channel.
-            /// </summary>
-            public void LogInstall(string source, string campaign, string adSet, string creative)
-            {
-                if (PlayerPrefs.GetInt(GUARD_KEY) == 1)
-                {
-                    GLLog.Trace("Mmp.LogInstall skipped — mmp_install already reported on this "
-                        + "device (incoming source='" + (source ?? "") + "').");
-                    return;
-                }
-
-                EnsureDispatcher();
-
-                var parameters = new List<EventDispatcher.QueuedParameter>
-                {
-                    EventDispatcher.StringParam("source", string.IsNullOrEmpty(source) ? "Organic" : source),
-                    EventDispatcher.StringParam("campaign", campaign ?? ""),
-                    EventDispatcher.StringParam("ad_set", adSet ?? ""),
-                    EventDispatcher.StringParam("creative", creative ?? ""),
-                };
-
-                GLLog.Trace("Mmp.LogInstall — firing mmp_install " + DescribeParams(parameters));
-                EventDispatcher.Instance.LogEvent("mmp_install", parameters);
-
-                PlayerPrefs.SetInt(GUARD_KEY, 1);
-                PlayerPrefs.Save();
-            }
-
-            /// <summary>True if 'mmp_install' has already been fired on this device. MMP
-            /// integration scripts can use this to skip work (e.g. don't bother polling
-            /// for attribution if we already reported the install).</summary>
-            public bool IsInstallReported => PlayerPrefs.GetInt(GUARD_KEY) == 1;
-
-            /// <summary>
-            /// DIAGNOSTIC: emit the entire raw attribution payload from an MMP as a
-            /// Firebase event so the actual SDK schema can be discovered from production
-            /// data via BigQuery. Each MMP integration calls this with its own event name
-            /// (e.g. "singular_attribution", "adjust_attribution", "appsflyer_attribution").
-            ///
-            /// Firebase guardrails baked in:
-            ///   - 25-param limit: GA4 caps events at 25 params, so a large payload is SPLIT
-            ///     across as many '<name>_1', '<name>_2', … events as needed — nothing is
-            ///     dropped. Every part carries 'gl_part' (1-based) + 'gl_parts' (total) so you
-            ///     can verify completeness and re-stitch the full payload in BigQuery. (Marker
-            ///     names must start with a letter — GA4 rejects a leading '_' on-device.)
-            ///   - 100-char value limit: longer string values are truncated.
-            ///   - null values are skipped (Firebase rejects them anyway).
-            ///   - non-string keys with disallowed chars (Firebase requires [A-Za-z0-9_]) are
-            ///     sanitized to underscore.
-            ///
-            /// REMOVE THIS once the production schemas are confirmed and per-MMP field
-            /// mappings have been hardened against the real payloads. It's a discovery
-            /// tool, not a production telemetry stream.
-            /// </summary>
-            public void LogAttributionSchema(string firebaseEventName, Dictionary<string, object> attributionPayload)
-            {
-                if (string.IsNullOrEmpty(firebaseEventName)) return;
-                if (attributionPayload == null || attributionPayload.Count == 0) return;
-
-                EnsureDispatcher();
-
-                // Flatten to sanitized (key, value) pairs first so we know the true count
-                // before chunking: null values skipped (Firebase rejects them), keys
-                // sanitized to [A-Za-z0-9_], values truncated to Firebase's 100-char limit.
-                var pairs = new List<KeyValuePair<string, string>>(attributionPayload.Count);
-                foreach (var kvp in attributionPayload)
-                {
-                    if (kvp.Value == null) continue;
-
-                    string key = SanitizeKey(kvp.Key);
-                    if (string.IsNullOrEmpty(key)) continue;
-
-                    string val = kvp.Value.ToString();
-                    if (val.Length > 100) val = val.Substring(0, 100);
-
-                    pairs.Add(new KeyValuePair<string, string>(key, val));
-                }
-                if (pairs.Count == 0) return;
-
-                // GA4 caps events at 25 params. EventDispatcher appends 2 at flush time
-                // (event_type + session) and we add 2 markers (gl_part + gl_parts), leaving 21
-                // payload keys per event. Split into '<name>_1', '<name>_2', … so EVERY key
-                // is emitted — no truncation, no "_dropped".
-                const int KEYS_PER_EVENT = 21;
-                int totalParts = (pairs.Count + KEYS_PER_EVENT - 1) / KEYS_PER_EVENT;
-
-                for (int part = 0; part < totalParts; part++)
-                {
-                    int start = part * KEYS_PER_EVENT;
-                    int end = start + KEYS_PER_EVENT;
-                    if (end > pairs.Count) end = pairs.Count;
-
-                    var firebaseParams = new List<EventDispatcher.QueuedParameter>(end - start + 2);
-                    for (int i = start; i < end; i++)
-                        firebaseParams.Add(EventDispatcher.StringParam(pairs[i].Key, pairs[i].Value));
-
-                    firebaseParams.Add(EventDispatcher.LongParam("gl_part", part + 1));
-                    firebaseParams.Add(EventDispatcher.LongParam("gl_parts", totalParts));
-
-                    string eventName = firebaseEventName + "_" + (part + 1);
-                    GLLog.Trace("Mmp.LogAttributionSchema '" + eventName + "' — " + (end - start)
-                        + " keys (part " + (part + 1) + "/" + totalParts + ").");
-                    EventDispatcher.Instance.LogEvent(eventName, firebaseParams);
-                }
-            }
-
-            // Firebase param keys must match [A-Za-z][A-Za-z0-9_]{0,39} — they must START
-            // WITH A LETTER. A leading digit OR underscore is rejected on-device ("Name must
-            // start with a letter"). Replace illegal chars with '_', then ensure a letter leads.
-            private static string SanitizeKey(string key)
-            {
-                if (string.IsNullOrEmpty(key)) return null;
-
-                var chars = new System.Text.StringBuilder(key.Length);
-                for (int i = 0; i < key.Length && chars.Length < 40; i++)
-                {
-                    char c = key[i];
-                    bool isAlpha = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-                    bool isDigit = c >= '0' && c <= '9';
-                    if (isAlpha || isDigit || c == '_')
-                        chars.Append(c);
-                    else
-                        chars.Append('_');
-                }
-                // Must start with a letter — prefix one if sanitizing left a digit or '_' in front.
-                char head = chars[0];
-                bool startsWithLetter = (head >= 'A' && head <= 'Z') || (head >= 'a' && head <= 'z');
-                if (!startsWithLetter)
-                {
-                    chars.Insert(0, 'k');
-                    if (chars.Length > 40) chars.Length = 40;
-                }
-                return chars.ToString();
-            }
-        }
-
-        /// <summary>True after Initialize() has been called.</summary>
         public static bool IsInitialized => _isInitialized;
 
-        /// <summary>
-        /// Monotonically increasing session counter. Increments once per app launch
-        /// on the first Initialize() call. Auto-attached to every tracked event as
-        /// the "session" parameter.
-        /// </summary>
-        public static int SessionCount { get; private set; }
+        /// <summary>Session of this app launch (gl_sid).</summary>
+        public static string SessionId => GLSession.Id;
+
+        /// <summary>How many sessions (launches) this install has had.</summary>
+        public static int SessionNumber => GLSession.Number;
 
         /// <summary>
-        /// Call this AFTER your Firebase init has completed successfully.
-        /// Spawns the internal event dispatcher and unblocks the queue.
-        /// Idempotent - safe to call multiple times.
+        /// Tell GameLyft that a platform's SDK has finished initializing; its queued events start
+        /// flowing to it. Call once per ticked destination, from your own init code — the SDK never
+        /// probes Firebase or the MMP SDKs itself. Safe from any thread (e.g. a ContinueWith callback).
+        ///
+        ///   Firebase     after CheckAndFixDependenciesAsync() reports DependencyStatus.Available
+        ///   AppsFlyer    after AppsFlyer.startSDK()
+        ///   Adjust       after Adjust.InitSdk(config)
+        ///   SolarEngine  in Solar Engine's init-completed callback (or after initSeSdk())
+        ///   Singular     after Singular is initialized
+        ///   Airbridge    at app start (Airbridge initializes natively from its settings)
         /// </summary>
+        public static void MarkReady(GLDestination destination)
+        {
+            if (GLReadiness.Mark(destination))
+                GLLog.Info(GLReadiness.IdOf(destination) + " marked ready — delivering its events.");
+        }
+
+        /// <summary>Called by the GameLyft prefab. Idempotent. Safe to call yourself too.</summary>
         public static void Initialize()
         {
-            // Silent idempotent return — auto-init + manual Initialize() can both fire safely.
             if (_isInitialized) return;
-
-            // Load settings and configure the logger (test mode + verbose logging flags).
-            var settings = GameLyftSettings.LoadOrNull();
-            bool testMode = settings != null && settings.testMode;
-            GLLog.Configure(settings != null && settings.verboseLogging, testMode);
-
-            // Sanity-check: is Firebase actually up? We can't reach out and verify,
-            // but FirebaseApp.DefaultInstance will throw or be null if not initialized.
-            if (!IsFirebaseAvailable())
-                Warn("Initialize() called but Firebase does not appear to be initialized. "
-                     + "Call Firebase.FirebaseApp.CheckAndFixDependenciesAsync() and wait for "
-                     + "DependencyStatus.Available BEFORE calling GameLyftAnalytics.Initialize().");
-
-            SessionCount = PlayerPrefs.GetInt(SESSION_KEY, 0) + 1;
-            PlayerPrefs.SetInt(SESSION_KEY, SessionCount);
-            PlayerPrefs.Save();
-
-            EventDispatcher.CreateAndStart();
             _isInitialized = true;
-            Info("Initialize() complete. Session " + SessionCount
-                + (testMode ? " (TEST MODE)" : "")
-                + (GLLog.IsVerbose ? " (VERBOSE LOGGING)" : "") + ".");
+            var s = Settings;
+            GLLog.Configure(s != null && s.verboseLogging, s != null && s.testMode);
+            if (GLDestinationRegistry.All.Count == 0)
+                GLLog.Warn("No destination is enabled. Tick Firebase or an MMP in Tools → GameLyft → Settings; "
+                    + "events are kept on disk until one is.");
+            GLLog.Info("Initialized. Session " + GLSession.Number + " (" + GLSession.Id + "), destinations: "
+                + string.Join(", ", GLDestinationRegistry.Ids()) + ".");
         }
 
         /// <summary>
-        /// Track an arbitrary event. Parameters can be string / int / long / float / double / bool.
-        /// Other types are converted via ToString().
+        /// Track a custom event. Values: string / int / long / float / double / bool (others via ToString()).
+        /// Pass the Adjust event token to also send it to Adjust (Adjust only accepts events created in
+        /// its dashboard); without a token the event goes to every other ticked destination.
         /// </summary>
-        public static void TrackEvent(string eventName, Dictionary<string, object> parameters = null)
+        public static void TrackEvent(string eventName, Dictionary<string, object> parameters = null, string adjustToken = "")
         {
             if (string.IsNullOrEmpty(eventName)) return;
-
-            // Suppress this warning while auto-init is actively polling — events queued during
-            // the polling window are expected and will drain once Initialize() fires.
-            if (!_isInitialized && !_autoInitPolling)
-                Warn("TrackEvent('" + eventName + "') called before Initialize(). Event will be "
-                     + "queued and drained once Initialize() is called, but 'session' will be 0.");
-
-            EnsureDispatcher();
-
-            // 'event_type' (= "gl_analytics") and 'session' are injected at flush time
-            // by EventDispatcher — uniformly, for every event the SDK sends.
-            var firebaseParams = new List<EventDispatcher.QueuedParameter>();
-
+            var ps = new List<GLParam>();
             if (parameters != null)
-            {
-                // GA4 drops events with more than 25 params server-side. Warn loudly.
-                // +2 accounts for the two injected at flush time (event_type + session).
-                if (parameters.Count + 2 > GA4_MAX_PARAMS)
-                    Warn("TrackEvent('" + eventName + "') has " + (parameters.Count + 2)
-                         + " parameters; GA4's limit is " + GA4_MAX_PARAMS
-                         + ". Extra params will be dropped server-side.");
-
-                foreach (var kvp in parameters)
+                foreach (var kv in parameters)
                 {
-                    if (kvp.Value == null) continue;
-
-                    if (kvp.Value is string s)
-                        firebaseParams.Add(EventDispatcher.StringParam(kvp.Key, s));
-                    else if (kvp.Value is int i)
-                        firebaseParams.Add(EventDispatcher.LongParam(kvp.Key, i));
-                    else if (kvp.Value is long l)
-                        firebaseParams.Add(EventDispatcher.LongParam(kvp.Key, l));
-                    else if (kvp.Value is float f)
-                        firebaseParams.Add(EventDispatcher.DoubleParam(kvp.Key, f));
-                    else if (kvp.Value is double d)
-                        firebaseParams.Add(EventDispatcher.DoubleParam(kvp.Key, d));
-                    else if (kvp.Value is bool b)
-                        firebaseParams.Add(EventDispatcher.StringParam(kvp.Key, b.ToString()));
-                    else
-                        firebaseParams.Add(EventDispatcher.StringParam(kvp.Key, kvp.Value.ToString()));
+                    if (string.IsNullOrEmpty(kv.Key) || kv.Value == null) continue;
+                    ps.Add(ToParam(kv.Key, kv.Value));
                 }
-            }
-
-            GLLog.Trace("TrackEvent '" + eventName + "' " + DescribeParams(firebaseParams));
-            EventDispatcher.Instance.LogEvent(eventName, firebaseParams);
+            Emit(eventName, ps, adjustToken);
         }
 
-        /// <summary>
-        /// Track an ad fill event. Records whether an ad was available at a given
-        /// placement, along with network connectivity and current session count.
-        /// Fires the 'ads_fill' Firebase event.
-        /// </summary>
+        /// <summary>Was an ad available when the game asked for one? Fires 'gl_ad_fill'.</summary>
         public static void TrackAdFill(GLAdFormat adFormat, string placement, GLAdResult result)
         {
-            TrackEvent("ads_fill", new Dictionary<string, object>
+            Emit("gl_ad_fill", new List<GLParam>
             {
-                { "format", adFormat.ToString().ToLowerInvariant() },
-                { "placement", placement ?? "" },
-                { "result", result.ToString() },
-                { "connection", Application.internetReachability != NetworkReachability.NotReachable }
-            });
+                S("format", adFormat.ToString().ToLowerInvariant()), S("placement", placement),
+                S("result", result.ToString()),
+                S("connection", GLMain.Online ? "True" : "False"),
+            }, null);
         }
 
-        /// <summary>Track an FTUE (first-time user experience) funnel step.</summary>
+        /// <summary>FTUE (onboarding) funnel step. Fires 'gl_ftue'.</summary>
         public static void TrackFTUE(int stepNumber, string stepName, FTUEState state)
         {
-            TrackEvent("ftue_funnel", new Dictionary<string, object>
-            {
-                { "step", stepNumber },
-                { "name", stepName ?? "" },
-                { "state", state.ToString() }
-            });
+            Emit("gl_ftue", new List<GLParam> { L("step", stepNumber), S("name", stepName), S("state", state.ToString()) }, null);
         }
 
         /// <summary>
-        /// Track a level progression event. Fires 'level_progression' on EVERY call (NOT deduped)
-        /// with level_number + state, so you can count how many times each player starts / fails /
-        /// completes a level and reconstruct the full journey. Distinguish them in analytics by the
-        /// 'state' param; pass per-attempt detail (attempt number, time, score, …) via levelData.
-        /// Also fires a one-shot 'level_&lt;N&gt;_completed' event the first time each level is completed.
+        /// Level event. Fires 'gl_level' on EVERY call (starts, fails and retries are all counted).
+        /// When the level is completed and listed as a milestone in Settings, also fires
+        /// 'gl_level_&lt;N&gt;_completed' once per install.
         /// </summary>
         public static void TrackLevelProgression(int levelNumber, LevelState state, Dictionary<string, object> levelData = null)
         {
-            // One-shot per-level 'level_<N>_completed' event — fires once per level on completion.
-            if (state == LevelState.level_complete)
-            {
-                string dedupeKey = "GLSdk_lvl_" + levelNumber + "_" + state;
-                if (PlayerPrefs.GetString(dedupeKey) != "true")
-                {
-                    PlayerPrefs.SetString(dedupeKey, "true");
-                    TrackEvent("level_" + levelNumber + "_completed");
-                }
-            }
-
-            var parameters = new Dictionary<string, object>
-            {
-                { "level_number", levelNumber },
-                { "state", state.ToString() }
-            };
-
+            var ps = new List<GLParam> { L("level_number", levelNumber), S("state", state.ToString()) };
             if (levelData != null)
-            {
-                foreach (var kvp in levelData)
+                foreach (var kv in levelData)
                 {
-                    if (!parameters.ContainsKey(kvp.Key))
-                        parameters[kvp.Key] = kvp.Value;
+                    if (string.IsNullOrEmpty(kv.Key) || kv.Value == null || kv.Key == "level_number" || kv.Key == "state") continue;
+                    ps.Add(ToParam(kv.Key, kv.Value));
                 }
-            }
+            Emit("gl_level", ps, null);
 
-            TrackEvent("level_progression", parameters);
+            if (state == LevelState.level_complete) GLMain.Run(() => MaybeMilestone(levelNumber));
         }
 
-        /// <summary>
-        /// Track a successful in-app purchase. Fires the 'gl_purchase' Firebase event.
-        /// Call from your IAP callback AFTER the receipt has been validated. The SDK
-        /// does not validate receipts itself.
-        /// </summary>
-        /// <param name="productId">SKU / product identifier from the store, e.g. "com.studio.game.coins_pack_small".</param>
-        /// <param name="currency">ISO 4217 currency code, e.g. "USD". Falls back to "USD" if null/empty.</param>
-        /// <param name="revenue">Revenue amount in the specified currency (the localized price the user paid).</param>
-        /// <param name="productName">Optional human-readable product name. Omitted from the event if null/empty.</param>
-        public static void TrackPurchase(
-            string productId,
-            string currency,
-            double revenue,
-            string productName = null)
+        /// <summary>Validated in-app purchase. Fires 'gl_purchase'.</summary>
+        public static void TrackPurchase(string productId, string currency, double revenue, string productName = null)
         {
             if (string.IsNullOrEmpty(productId)) return;
-
-            EnsureDispatcher();
-
-            var parameters = new List<EventDispatcher.QueuedParameter>
+            var ps = new List<GLParam>
             {
-                EventDispatcher.StringParam("product_id", productId),
-                EventDispatcher.StringParam("currency", string.IsNullOrEmpty(currency) ? "USD" : currency),
-                EventDispatcher.DoubleParam("value", revenue),
-                EventDispatcher.LongParam("success", 1),
+                S("product_id", productId), S("currency", string.IsNullOrEmpty(currency) ? "USD" : currency),
+                D("value", revenue), L("success", 1),
             };
-
-            if (!string.IsNullOrEmpty(productName))
-                parameters.Add(EventDispatcher.StringParam("product_name", productName));
-
-            GLLog.Trace("TrackPurchase gl_purchase " + DescribeParams(parameters));
-            EventDispatcher.Instance.LogEvent("gl_purchase", parameters);
+            if (!string.IsNullOrEmpty(productName)) ps.Add(S("product_name", productName));
+            Emit("gl_purchase", ps, null);
         }
 
-        private static void EnsureDispatcher()
-        {
-            // Allow events queued before Initialize() — they'll drain once Initialize() flips the flag.
-            if (EventDispatcher.Instance == null)
-                EventDispatcher.CreateAndStart();
-        }
-
-        /// <summary>Internal warn helper — routes to the central logger (always logs;
-        /// also mirrors to the Test Mode overlay). Kept for existing call sites.</summary>
-        internal static void Warn(string message) => GLLog.Warn(message);
-
-        /// <summary>Internal info helper — lifecycle milestones, always logged. Routes
-        /// to the central logger. Kept for existing call sites.</summary>
-        internal static void Info(string message) => GLLog.Info(message);
-
-        /// <summary>Compact "{ k=v, k2=v2 }" summary of queued params for verbose logging.</summary>
-        private static string DescribeParams(List<EventDispatcher.QueuedParameter> ps)
-        {
-            if (ps == null || ps.Count == 0) return "{ }";
-            var sb = new System.Text.StringBuilder("{ ");
-            for (int i = 0; i < ps.Count; i++)
-            {
-                if (i > 0) sb.Append(", ");
-                sb.Append(ps[i].key).Append('=').Append(ps[i].value);
-            }
-            sb.Append(" }");
-            return sb.ToString();
-        }
-
+#if GAMELYFT_ADMOB
         /// <summary>
-        /// Best-effort probe: does Firebase look initialized? We check FirebaseApp.DefaultInstance
-        /// without forcing creation. Reflection used to avoid a hard compile-time dependency on
-        /// any specific Firebase SDK version's API surface.
+        /// AdMob: call when a full-screen ad (interstitial, rewarded, app open) opens, e.g. from
+        /// OnAdFullScreenContentOpened. While an ad is on screen the app is paused by the OS, and
+        /// this keeps that time counted as engagement.
         /// </summary>
-        internal static bool IsFirebaseAvailable()
+        public static void AdStarted() => GLAdState.Started("admob");
+
+        /// <summary>AdMob: call when the full-screen ad closes (OnAdFullScreenContentClosed / ...Failed).</summary>
+        public static void AdClosed() => GLAdState.Closed("admob");
+#endif
+
+        // ── internals ────────────────────────────────────────────────────────────────────────
+
+        /// <summary>Loaded on the main thread before the first scene (GLMain.Preload); cached after.</summary>
+        internal static GameLyftSettings Settings
         {
-            try
+            get
             {
-                var t = System.Type.GetType("Firebase.FirebaseApp, Firebase.App");
-                if (t == null) return false;
-                var prop = t.GetProperty("DefaultInstance",
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                if (prop == null) return false;
-                return prop.GetValue(null) != null;
-            }
-            catch
-            {
-                return false;
+                if (_settings == null && GLMain.IsMainThread) _settings = GameLyftSettings.LoadOrNull();
+                return _settings;
             }
         }
+
+        /// <summary>Build, persist and queue one event. Thread-safe.</summary>
+        internal static GLEvent Emit(string name, List<GLParam> ps, string adjustToken)
+        {
+            var e = new GLEvent
+            {
+                eid = GLIds.New(10),
+                name = name,
+                ts = GLIds.NowUnixSeconds(),
+                sid = GLSession.Id,
+                ps = ps ?? new List<GLParam>(),
+                adj = string.IsNullOrEmpty(adjustToken) ? FixedAdjustToken(name) : adjustToken,
+                dests = GLDestinationRegistry.DeliveryList(),
+            };
+            GLStore.Add(e);
+            if (GLLog.IsVerbose) GLLog.Trace("Tracked '" + name + "' (gl_eid " + e.eid + ") → " + string.Join(", ", e.dests));
+            return e;
+        }
+
+        private static void MaybeMilestone(int level)
+        {
+            var s = Settings;
+            if (s == null || !s.sendLevelMilestones || s.levelMilestones == null) return;
+            int n = 0;
+            foreach (int m in s.levelMilestones)
+            {
+                if (++n > MAX_MILESTONES) break;
+                if (m != level) continue;
+                string key = MILESTONE_SENT_KEY + level;
+                if (PlayerPrefs.GetInt(key, 0) == 1) return;
+                PlayerPrefs.SetInt(key, 1);
+                PlayerPrefs.Save();
+                Emit("gl_level_" + level + "_completed", new List<GLParam>(), null);
+                return;
+            }
+        }
+
+        /// <summary>Adjust token configured in Settings for one of the SDK's own events.</summary>
+        private static string FixedAdjustToken(string eventName)
+        {
+            var s = Settings;
+            if (s == null || s.adjustTokens == null) return "";
+            foreach (var t in s.adjustTokens)
+                if (t != null && t.eventName == eventName) return t.token ?? "";
+            return "";
+        }
+
+        private static GLParam ToParam(string key, object v)
+        {
+            switch (v)
+            {
+                case string x: return S(key, x);
+                case int x: return L(key, x);
+                case long x: return L(key, x);
+                case short x: return L(key, x);
+                case float x: return D(key, x);
+                case double x: return D(key, x);
+                case decimal x: return D(key, (double)x);
+                case bool x: return S(key, x ? "True" : "False");
+                default: return S(key, v.ToString());
+            }
+        }
+
+        internal static GLParam S(string k, string v) => new GLParam(k, v ?? "", "s");
+        internal static GLParam L(string k, long v) => new GLParam(k, v.ToString(System.Globalization.CultureInfo.InvariantCulture), "l");
+        internal static GLParam D(string k, double v) => new GLParam(k, v.ToString("R", System.Globalization.CultureInfo.InvariantCulture), "d");
+
+        internal static void Warn(string message) => GLLog.Warn(message);
+        internal static void Info(string message) => GLLog.Info(message);
     }
 }

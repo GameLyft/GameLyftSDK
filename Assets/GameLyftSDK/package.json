@@ -1,8 +1,8 @@
 {
   "name": "com.gamelyft.sdk",
-  "version": "1.0.11",
+  "version": "1.0.0",
   "displayName": "GameLyft SDK",
-  "description": "Slim Firebase-only analytics with persistent event queueing, FTUE / level / ad-fill tracking, impression-level revenue reporting for AdMob and AppLovin MAX, and one-shot install attribution from Solar Engine, AppsFlyer, Adjust, Singular, and Tenjin.",
+  "description": "Events helper for Unity games: one call per event, delivered to Firebase, AppsFlyer, Adjust, Solar Engine, Singular and Airbridge through a durable on-disk queue; built-in engagement (gl_engagement) and impression-level ad revenue for AdMob and AppLovin MAX.",
   "unity": "2022.3",
   "author": {
     "name": "GameLyft",
@@ -12,9 +12,13 @@
   "keywords": [
     "analytics",
     "firebase",
-    "mmp",
-    "attribution",
+    "appsflyer",
+    "adjust",
+    "singular",
+    "solar engine",
+    "airbridge",
     "admob",
-    "applovin"
+    "applovin",
+    "engagement"
   ]
 }

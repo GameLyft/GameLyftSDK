@@ -58,7 +58,7 @@ namespace GameLyft.Sdk
         {
             EnsureLoaded();
             Debug.LogWarning(PREFIX + message);
-            if (_testMode) GLDebugOverlay.Push(message);
+            if (_testMode) GLMain.Run(() => GLDebugOverlay.Push(message));
         }
 
         /// <summary>Failure. Always logged.</summary>
@@ -69,7 +69,7 @@ namespace GameLyft.Sdk
 
         private static void EnsureLoaded()
         {
-            if (_loaded) return;
+            if (_loaded || !GLMain.IsMainThread) return;
             var s = GameLyftSettings.LoadOrNull();
             _verbose = s != null && s.verboseLogging;
             _testMode = s != null && s.testMode;

@@ -1,0 +1,31 @@
+event_name,replaces,fired_by,parameter,type,required,example,notes
+*,,every SDK event,gl_eid,string,yes,k3x9q2m7ab,"Unique event id, 10 chars. Platform dedupes on it; Adjust DeduplicationId. Marks the event as SDK output."
+*,,every SDK event,gl_ts,long,yes,1790835972,"Event's real time, Unix seconds (destinations stamp send time, not event time)."
+*,,every SDK event,gl_sid,string,yes,a8f3k2p9,"Session id, 8 chars, one per app launch."
+gl_engagement,(new),GL_Engagement (prefab),session_number,long,yes,12,"Session count on this device, computed once per launch."
+gl_engagement,(new),GL_Engagement (prefab),session_id,string,yes,a8f3k2p9,"Same value as gl_sid."
+gl_engagement,(new),GL_Engagement (prefab),time_ms,long,yes,30000,"Total FOREGROUND ms since session start (not since last heartbeat). Sent at start (0), every heartbeat, and on background."
+gl_ad_impression,gl_ad_impression,AdRevenue.Report / AdRevenue.Log,ad_platform,string,yes,max,"Mediation: admob | max | other."
+gl_ad_impression,gl_ad_impression,AdRevenue.Report / AdRevenue.Log,ad_source,string,yes,AppLovin,Network that served the ad.
+gl_ad_impression,gl_ad_impression,AdRevenue.Report / AdRevenue.Log,ad_format,string,yes,REWARDED,Mediation's own format string.
+gl_ad_impression,gl_ad_impression,AdRevenue.Report / AdRevenue.Log,ad_unit_name,string,yes,a1b2c3d4e5,Ad unit id.
+gl_ad_impression,gl_ad_impression,AdRevenue.Report / AdRevenue.Log,currency,string,yes,USD,ISO 4217.
+gl_ad_impression,gl_ad_impression,AdRevenue.Report / AdRevenue.Log,value,double,yes,0.0142,Revenue of this impression.
+gl_ad_impression,gl_ad_impression,AdRevenue.Report / AdRevenue.Log,platform,string,yes,gameLyft,Fixed value (kept from 1.x).
+gl_ad_fill,ads_fill,TrackAdFill,format,string,yes,interstitial,banner | mrec | interstitial | rewarded | appopen.
+gl_ad_fill,ads_fill,TrackAdFill,placement,string,yes,level_complete,Game's placement name.
+gl_ad_fill,ads_fill,TrackAdFill,result,string,yes,Available,Available | NotAvailable.
+gl_ad_fill,ads_fill,TrackAdFill,connection,string,yes,True,Internet reachable at the time (True | False).
+gl_ftue,ftue_funnel,TrackFTUE,step,long,yes,3,Step number.
+gl_ftue,ftue_funnel,TrackFTUE,name,string,yes,tutorial_intro,Step name.
+gl_ftue,ftue_funnel,TrackFTUE,state,string,yes,ftue_complete,ftue_start | ftue_complete.
+gl_level,level_progression,TrackLevelProgression,level_number,long,yes,5,Fires on EVERY call (attempts countable).
+gl_level,level_progression,TrackLevelProgression,state,string,yes,level_complete,level_start | level_complete | level_fail | level_skip | level_restart | level_pause | level_resume.
+gl_level,level_progression,TrackLevelProgression,(levelData keys),any,no,score=12500,Game-supplied extra params (within the 25-param limit).
+gl_level_<N>_completed,level_<N>_completed,TrackLevelProgression (level_complete),,,,gl_level_10_completed,"Only for levels in the editor milestone list (max 10), once per level per install. For MMP campaign optimisation."
+gl_purchase,gl_purchase,TrackPurchase,product_id,string,yes,coins_small,Unchanged for now.
+gl_purchase,gl_purchase,TrackPurchase,currency,string,yes,USD,Unchanged for now.
+gl_purchase,gl_purchase,TrackPurchase,value,double,yes,0.99,Unchanged for now.
+gl_purchase,gl_purchase,TrackPurchase,success,long,yes,1,Unchanged for now.
+gl_purchase,gl_purchase,TrackPurchase,product_name,string,no,Coin Pack - Small,Unchanged for now.
+(custom),,TrackEvent(name; params; adjustToken),(game params),any,no,,"Game's own events: name as given, plus gl_eid / gl_ts / gl_sid. Sent to Adjust only when adjustToken is passed."
