@@ -13,8 +13,9 @@ namespace GameLyft.Sdk
         /// <summary>Stable id stored in the queue file: "firebase", "appsflyer", ….</summary>
         string Id { get; }
 
-        /// <summary>Has the game declared this platform initialized (GameLyftAnalytics.MarkReady)?
-        /// Events wait on disk until then. Must not touch the platform SDK.</summary>
+        /// <summary>Is this platform initialized? True once the game called GameLyftAnalytics.MarkReady,
+        /// or once the destination detected it safely by itself (AppsFlyer). Events wait on disk until
+        /// then. Must never call into the platform SDK in a way that can throw or start it.</summary>
         bool IsReady();
 
         /// <summary>
@@ -27,9 +28,10 @@ namespace GameLyft.Sdk
 
     /// <summary>
     /// Which destinations the GAME has declared initialized (GameLyftAnalytics.MarkReady). The SDK
-    /// never probes a platform SDK to find out — probing Firebase while its dependency check runs
-    /// throws (FirebaseApp.Finalize → ThrowIfCheckDependenciesRunning), and the MMPs offer no
-    /// reliable "initialized" signal. Thread-safe.
+    /// never probes Firebase — probing it while its dependency check runs throws
+    /// (FirebaseApp.Finalize → ThrowIfCheckDependenciesRunning). AppsFlyer is also detected
+    /// automatically from its start callback (see GLAppsFlyerDestination); MarkReady still overrides.
+    /// Thread-safe.
     /// </summary>
     public static class GLReadiness
     {

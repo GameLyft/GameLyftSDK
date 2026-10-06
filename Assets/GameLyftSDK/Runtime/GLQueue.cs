@@ -327,9 +327,13 @@ namespace GameLyft.Sdk
                 {
                     _checkedMarks = true;
                     foreach (var d in GLDestinationRegistry.All)
-                        if (!GLReadiness.IsReady(d.Id))
+                    {
+                        bool ready;
+                        try { ready = d.IsReady(); } catch { ready = false; }
+                        if (!ready)
                             GLLog.Warn(d.Id + " is ticked in GameLyft Settings but was never marked ready: its events wait on disk. "
                                 + "Call GameLyftAnalytics.MarkReady(GLDestination." + EnumName(d.Id) + ") once you have initialized it.");
+                    }
                 }
                 if (!_loaded) return;
                 if (_loadedFromDisk != null)

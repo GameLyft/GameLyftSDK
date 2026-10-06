@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-10-06
+
+### Added
+- **AppsFlyer is detected automatically — no `MarkReady` needed.** The SDK subscribes to
+  `AppsFlyer.OnRequestResponse` at startup, before the game calls `startSDK()`, so the AppsFlyer
+  plugin requests its native start callback; the first callback (any status code) marks AppsFlyer
+  ready. If it never arrives (no callback object, launch blocked, offline), AppsFlyer is treated as
+  ready 10 s after `initSDK()` (`AppsFlyer.instance.isInit`). `MarkReady(GLDestination.AppsFlyer)`
+  still works and wins immediately.
+- The object named in `AppsFlyer.CallBackObjectName` gets an `AppsFlyer` component if it lacks one
+  (the stock `AppsFlyerObject` prefab only carries `AppsFlyerObjectScript`, so the native start
+  callback had no receiver). Games that pass no callback object to `initSDK` get a hidden
+  `GameLyft.AppsFlyerReceiver` instead.
+
+### Changed
+- The Test Mode "never marked ready" warning (60 s) now checks each destination's own readiness,
+  so an auto-detected AppsFlyer is no longer reported.
+
 ## [1.0.0] - 2026-10-01
 
 First release of the GameLyft SDK as an events helper: one call per event, delivered to every

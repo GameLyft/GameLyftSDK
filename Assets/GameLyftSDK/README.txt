@@ -34,15 +34,21 @@ SETUP
    loaded once per launch, usually the loading scene, Build Settings index 0). The prefab
    initializes the SDK, survives scene loads and measures engagement.
 
-4. Initialize Firebase / AppsFlyer / Adjust / … as you already do, then tell GameLyft each one is
-   ready. Until then that platform's events wait on disk (nothing is lost). GameLyft never probes
-   those SDKs itself — probing Firebase while its dependency check runs throws
+4. Initialize Firebase / AppsFlyer / Adjust / … as you already do. Until a platform is ready its
+   events wait on disk (nothing is lost).
+
+   AppsFlyer is detected automatically: nothing to add. GameLyft listens for AppsFlyer's own
+   start callback (AppsFlyer.OnRequestResponse) and delivers once startSDK() has run; if that
+   callback never comes, it delivers 10 s after initSDK(). Keep GameLyft initialized before
+   startSDK() (the prefab in the first scene does this).
+
+   For the other platforms, tell GameLyft each one is ready. GameLyft never probes Firebase
+   itself — probing it while its dependency check runs throws
    "Don't call Firebase functions before CheckDependencies has finished".
 
      FirebaseApp.CheckAndFixDependenciesAsync().ContinueWith(t => {
          if (t.Result == DependencyStatus.Available) GameLyftAnalytics.MarkReady(GLDestination.Firebase);
      });
-     AppsFlyer.startSDK();          GameLyftAnalytics.MarkReady(GLDestination.AppsFlyer);
      Adjust.InitSdk(adjustConfig);  GameLyftAnalytics.MarkReady(GLDestination.Adjust);
      // Solar Engine: in its init-completed callback (code 0), or right after initSeSdk()
      GameLyftAnalytics.MarkReady(GLDestination.SolarEngine);
@@ -50,8 +56,10 @@ SETUP
      GameLyftAnalytics.MarkReady(GLDestination.Singular);
      // Airbridge starts natively from its settings: mark it at app start
      GameLyftAnalytics.MarkReady(GLDestination.Airbridge);
+     // Optional for AppsFlyer: mark it yourself to deliver straight away
+     AppsFlyer.startSDK();          GameLyftAnalytics.MarkReady(GLDestination.AppsFlyer);
 
-   MarkReady is safe from any thread. In Test Mode, a ticked platform that is still not marked
+   MarkReady is safe from any thread. In Test Mode, a ticked platform that is still not ready
    after 60 seconds is reported.
 
 ------------------------------------------------------------
