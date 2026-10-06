@@ -16,6 +16,8 @@ namespace GameLyft.Sdk
         private static readonly Stopwatch _since = new Stopwatch();
         private static readonly object _lock = new object();
         private static int _open;
+        private static long _lastStartTs = long.MinValue;   // Stopwatch.GetTimestamp() of the last Started()
+        private static long _lastCloseTs = long.MinValue;   // Stopwatch.GetTimestamp() of the last Closed()
 
         internal static bool IsShowing
         {
@@ -31,13 +33,27 @@ namespace GameLyft.Sdk
             {
                 if (_open <= 0 || _since.ElapsedMilliseconds >= MAX_AD_MS) { _open = 0; _since.Restart(); }
                 _open++;
+                _lastStartTs = Stopwatch.GetTimestamp();
             }
             GLLog.Trace("Ad started (" + source + ") — engagement keeps counting while it shows.");
         }
 
+        /// <summary>
+        /// Was a full-screen ad shown AND closed during a pause that began at this
+        /// Stopwatch.GetTimestamp() value? AppLovin MAX delivers "displayed" and "hidden" only once the
+        /// app resumes, so both arrive right after resume for an ad that ran while the app was paused.
+        /// An ad that opens on resume (e.g. app open) is still showing, so it does not match.
+        /// </summary>
+        internal static bool ShownAndClosedSince(long timestamp)
+        {
+            lock (_lock)
+                return _lastStartTs != long.MinValue && _lastStartTs >= timestamp
+                    && _lastCloseTs >= _lastStartTs && _open <= 0;
+        }
+
         internal static void Closed(string source)
         {
-            lock (_lock) { if (_open > 0) _open--; }
+            lock (_lock) { if (_open > 0) _open--; _lastCloseTs = Stopwatch.GetTimestamp(); }
             GLLog.Trace("Ad closed (" + source + ").");
         }
     }

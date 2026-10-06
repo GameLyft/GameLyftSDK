@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-10-06
+
+### Fixed
+- **The session's final engagement event is no longer stranded.** The background (and quit)
+  `gl_engagement` is handed to every ready platform immediately, then flushed to disk; before,
+  it waited for the next frame and was only delivered on the next launch when the game was closed
+  in the background. It stays in the durable queue for platforms that are not ready yet.
+- **No near-duplicate heartbeat on resume.** The 30 s heartbeat restarts when the app returns to
+  the foreground; before, an overdue heartbeat fired right after the background event.
+- **Interstitial / rewarded time with AppLovin MAX is counted again.** MAX delivers "displayed"
+  and "hidden" only after the app resumes, so the pause an ad causes looked like the player
+  leaving and the ad time was dropped (e.g. a 62 s interstitial). A pause in which an ad was shown
+  and closed is now credited back on resume (capped at 3 minutes per ad). An ad that opens on
+  resume (app open) is not mistaken for this.
+
 ## [1.1.0] - 2026-10-06
 
 ### Added

@@ -110,9 +110,14 @@ total FOREGROUND time of this session: at session start (0), every 30 seconds, a
 goes to the background. A session is one app launch. Sessions per user = distinct session_id;
 session length = the largest time_ms of the session.
 
+The background event is handed to the platforms immediately (not on the next frame), so the
+session's final time is delivered even if the game is closed while in the background. The 30 s
+heartbeat restarts when the app returns, so coming back never fires an extra event at once.
+
 It runs on real time (Time.timeScale = 0 does not stop it) and pauses in the background.
 Full-screen ads pause the app too, but that time keeps counting:
-  - AppLovin MAX: automatic.
+  - AppLovin MAX: automatic. MAX reports the ad only after the app resumes, so a pause in which an
+    ad was shown and closed is counted back on return (capped at 3 minutes per ad).
   - AdMob: call these from your full-screen ads' callbacks:
         ad.OnAdFullScreenContentOpened += () => GameLyftAnalytics.AdStarted();
         ad.OnAdFullScreenContentClosed += () => GameLyftAnalytics.AdClosed();

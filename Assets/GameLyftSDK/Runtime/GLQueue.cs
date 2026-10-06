@@ -435,6 +435,44 @@ namespace GameLyft.Sdk
             }
         }
 
+        /// <summary>
+        /// Main thread, on pause: hand this event to every ready destination right now instead of
+        /// waiting for the next frame (the game may be killed in the background before it comes).
+        /// The platform SDK stores and sends it on its own thread. The acknowledgements are flushed
+        /// to disk; destinations not ready yet keep it queued as usual. At least once, as always.
+        /// </summary>
+        internal static void DeliverNow(GLEvent e)
+        {
+            if (e == null || !GLMain.IsMainThread) return;
+            if (_instance != null) _instance.SendImmediately(e);
+            GLStore.FlushBlocking(400);
+        }
+
+        private void SendImmediately(GLEvent e)
+        {
+            for (int j = e.dests.Count - 1; j >= 0; j--)
+            {
+                string id = e.dests[j];
+                var d = GLDestinationRegistry.Find(id);
+                if (d == null) continue;
+                bool ok = _ready.TryGetValue(id, out var r) && r;
+                if (!ok)
+                {
+                    try { ok = d.IsReady(); } catch { ok = false; }
+                    if (ok) _ready[id] = true;
+                }
+                if (!ok) continue;
+                bool sent;
+                try { sent = d.Send(e); }
+                catch (Exception ex) { sent = false; GLLog.Warn(id + " rejected '" + e.name + "': " + ex.Message); }
+                if (!sent) continue;
+                e.dests.RemoveAt(j);          // same instance the queue will pick up: nothing left to send there
+                GLStore.Ack(e.eid, id);
+                _acksSinceCompact++;
+                if (GLLog.IsVerbose) GLLog.Trace("-> " + id + " '" + e.name + "' (gl_eid " + e.eid + ", sent immediately on pause)");
+            }
+        }
+
         private void OnApplicationPause(bool paused)
         {
             if (paused) GLStore.FlushBlocking(400);

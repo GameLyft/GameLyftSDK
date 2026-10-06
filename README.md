@@ -15,7 +15,7 @@ https://github.com/GameLyft/GameLyftSDK.git?path=Assets/GameLyftSDK
 Pinned to a specific release:
 
 ```
-https://github.com/GameLyft/GameLyftSDK.git?path=Assets/GameLyftSDK#v1.1.0
+https://github.com/GameLyft/GameLyftSDK.git?path=Assets/GameLyftSDK#v1.1.1
 ```
 
 ### .unitypackage

@@ -1,6 +1,6 @@
 {
   "name": "com.gamelyft.sdk",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "displayName": "GameLyft SDK",
   "description": "Events helper for Unity games: one call per event, delivered to Firebase, AppsFlyer, Adjust, Solar Engine, Singular and Airbridge through a durable on-disk queue; built-in engagement (gl_engagement) and impression-level ad revenue for AdMob and AppLovin MAX.",
   "unity": "2022.3",
