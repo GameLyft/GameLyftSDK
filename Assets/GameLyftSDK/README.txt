@@ -116,8 +116,9 @@ heartbeat restarts when the app returns, so coming back never fires an extra eve
 
 It runs on real time (Time.timeScale = 0 does not stop it) and pauses in the background.
 Full-screen ads pause the app too, but that time keeps counting:
-  - AppLovin MAX: automatic. MAX reports the ad only after the app resumes, so a pause in which an
-    ad was shown and closed is counted back on return (capped at 3 minutes per ad).
+  - AppLovin MAX: automatic and in real time. GameLyft reads MAX's "ad displayed" the moment the ad
+    is on screen (MAX's Unity callbacks only arrive after the ad closes), so the clock keeps running
+    through the ad. Capped at 2 minutes per ad.
   - AdMob: call these from your full-screen ads' callbacks:
         ad.OnAdFullScreenContentOpened += () => GameLyftAnalytics.AdStarted();
         ad.OnAdFullScreenContentClosed += () => GameLyftAnalytics.AdClosed();

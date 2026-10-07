@@ -61,6 +61,7 @@ namespace GameLyft.Sdk
         {
             Write("E" + JsonUtility.ToJson(e));
             _incoming.Enqueue(e);
+            GLQueue.Signal();   // the dispatcher thread delivers it right away
         }
 
         internal static bool TryTakeIncoming(out GLEvent e) => _incoming.TryDequeue(out e);
@@ -262,31 +263,46 @@ namespace GameLyft.Sdk
     }
 
     /// <summary>
-    /// Main-thread dispatcher: hands queued events to each destination once that destination's
-    /// SDK has started and the device is online. A few sends per frame at most; every call is
-    /// guarded so a failing destination can never break the game or the other destinations.
+    /// Dispatcher: hands queued events to each destination once that destination's SDK has started
+    /// and the device is online. Runs on its own background thread ("GameLyft.Dispatch"), so events
+    /// go out the moment they are tracked, also while Unity's main thread is paused (a full-screen
+    /// ad is on screen, the app is backgrounded). A destination whose SDK throws when called off the
+    /// main thread is switched to main-thread delivery for the rest of the run. Every call is guarded
+    /// so a failing destination can never break the game or the other destinations.
     /// </summary>
     internal class GLQueue : MonoBehaviour
     {
-        private const int MAX_SENDS_PER_FRAME = 20;
-        private const float READY_RECHECK_SECONDS = 1f;
+        private const int MAX_SENDS_PER_PASS = 50;
+        private const int READY_RECHECK_MS = 1000;
+        private const int IDLE_WAIT_MS = 250;
         private const float NOT_MARKED_WARNING_SECONDS = 60f;
         private const int COMPACT_AFTER_ACKS = 2000;
         private const int LARGE_QUEUE_WARNING = 10000;
 
         private static GLQueue _instance;
+        private static readonly AutoResetEvent _wake = new AutoResetEvent(false);
+        private static volatile int _pendingCount;
+
+        private readonly object _sync = new object();                 // guards everything below
         private readonly List<GLEvent> _pending = new List<GLEvent>();
         private readonly HashSet<string> _ids = new HashSet<string>();
         private readonly Dictionary<string, bool> _ready = new Dictionary<string, bool>();
-        private float _nextReadyCheck;
+        private readonly HashSet<string> _mainOnly = new HashSet<string>();   // SDKs that must be called on the main thread
+        private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+        private long _nextReadyCheckMs;
         private int _acksSinceCompact;
         private volatile bool _loaded;
+        private volatile bool _running;
         private List<GLEvent> _loadedFromDisk;
         private bool _warnedLarge;
         private bool _checkedPrefab;
         private bool _checkedMarks;
+        private Thread _worker;
 
-        internal static int PendingCount => _instance != null ? _instance._pending.Count : 0;
+        internal static int PendingCount => _pendingCount;
+
+        /// <summary>Any thread: an event was tracked — deliver it now.</summary>
+        internal static void Signal() => _wake.Set();
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Bootstrap()
@@ -307,8 +323,36 @@ namespace GameLyft.Sdk
                 try { _loadedFromDisk = GLStore.LoadPending(); }
                 catch (Exception e) { Debug.LogError("[GameLyft] Event store read failed: " + e.Message); _loadedFromDisk = new List<GLEvent>(); }
                 _loaded = true;
+                Signal();
             }) { IsBackground = true, Name = "GameLyft.Load" };
             t.Start();
+
+            _running = true;
+            _worker = new Thread(WorkerLoop) { IsBackground = true, Name = "GameLyft.Dispatch" };
+            _worker.Start();
+        }
+
+        private void WorkerLoop()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // Android SDKs are called through JNI: this thread must be attached to the VM.
+            try { AndroidJNI.AttachCurrentThread(); } catch (Exception e) { Debug.LogWarning("[GameLyft] JNI attach failed: " + e.Message); }
+#endif
+            try
+            {
+                while (_running)
+                {
+                    try { Pass(onMainThread: false); }
+                    catch (Exception e) { GLLog.Error("Dispatcher error: " + e.Message); }
+                    _wake.WaitOne(IDLE_WAIT_MS);
+                }
+            }
+            finally
+            {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                try { AndroidJNI.DetachCurrentThread(); } catch { }
+#endif
+            }
         }
 
         private void Update()
@@ -335,7 +379,21 @@ namespace GameLyft.Sdk
                                 + "Call GameLyftAnalytics.MarkReady(GLDestination." + EnumName(d.Id) + ") once you have initialized it.");
                     }
                 }
-                if (!_loaded) return;
+                // destinations that can only be called on the main thread are delivered from here
+                bool anyMainOnly;
+                lock (_sync) anyMainOnly = _mainOnly.Count > 0;
+                if (anyMainOnly) Pass(onMainThread: true);
+            }
+            catch (Exception e) { GLLog.Error("Dispatcher error: " + e.Message); }
+        }
+
+        /// <summary>One delivery pass. The worker thread delivers every destination except the
+        /// main-thread-only ones; the main thread (Update) delivers only those.</summary>
+        private void Pass(bool onMainThread)
+        {
+            if (!_loaded) return;
+            lock (_sync)
+            {
                 if (_loadedFromDisk != null)
                 {
                     foreach (var e in _loadedFromDisk) if (_ids.Add(e.eid)) _pending.Add(e);
@@ -344,6 +402,7 @@ namespace GameLyft.Sdk
                 }
                 while (GLStore.TryTakeIncoming(out var inc))
                     if (_ids.Add(inc.eid)) _pending.Add(inc);
+                _pendingCount = _pending.Count;
 
                 if (!_warnedLarge && _pending.Count > LARGE_QUEUE_WARNING)
                 {
@@ -351,10 +410,11 @@ namespace GameLyft.Sdk
                     GLLog.Warn(_pending.Count + " events are waiting to be delivered. Is every ticked destination's SDK initialized?");
                 }
                 if (_pending.Count == 0) return;
-                if (Application.internetReachability == NetworkReachability.NotReachable) return;
+                if (!GLMain.Online) return;   // last known connectivity (refreshed every frame on the main thread)
 
-                if (Time.unscaledTime >= _nextReadyCheck) RefreshReadiness();
-                Deliver();
+                if (_clock.ElapsedMilliseconds >= _nextReadyCheckMs) RefreshReadiness();
+                Deliver(onMainThread);
+                _pendingCount = _pending.Count;
 
                 if (_acksSinceCompact >= COMPACT_AFTER_ACKS)
                 {
@@ -362,7 +422,6 @@ namespace GameLyft.Sdk
                     GLStore.Compact();
                 }
             }
-            catch (Exception e) { GLLog.Error("Dispatcher error: " + e.Message); }
         }
 
         private static string EnumName(string id)
@@ -374,7 +433,7 @@ namespace GameLyft.Sdk
 
         private void RefreshReadiness()
         {
-            _nextReadyCheck = Time.unscaledTime + READY_RECHECK_SECONDS;
+            _nextReadyCheckMs = _clock.ElapsedMilliseconds + READY_RECHECK_MS;
             foreach (var d in GLDestinationRegistry.All)
             {
                 if (_ready.TryGetValue(d.Id, out var was) && was) continue;   // once started, stays started
@@ -385,13 +444,13 @@ namespace GameLyft.Sdk
             }
         }
 
-        private void Deliver()
+        private void Deliver(bool onMainThread)
         {
             int sends = 0;
-            for (int i = 0; i < _pending.Count && sends < MAX_SENDS_PER_FRAME; i++)
+            for (int i = 0; i < _pending.Count && sends < MAX_SENDS_PER_PASS; i++)
             {
                 var e = _pending[i];
-                for (int j = e.dests.Count - 1; j >= 0 && sends < MAX_SENDS_PER_FRAME; j--)
+                for (int j = e.dests.Count - 1; j >= 0 && sends < MAX_SENDS_PER_PASS; j--)
                 {
                     string id = e.dests[j];
                     if (id == GLDestinationRegistry.UNASSIGNED)
@@ -414,17 +473,28 @@ namespace GameLyft.Sdk
                         GLStore.Ack(e.eid, id);
                         continue;
                     }
+                    if (_mainOnly.Contains(id) != onMainThread) continue;
                     if (!_ready.TryGetValue(id, out var ok) || !ok) continue;
 
                     bool sent;
                     try { sent = d.Send(e); }
-                    catch (Exception ex) { sent = false; GLLog.Warn(id + " rejected '" + e.name + "': " + ex.Message); }
+                    catch (Exception ex)
+                    {
+                        sent = false;
+                        if (!onMainThread)
+                        {
+                            // this SDK does not accept calls off the main thread: deliver it from Update from now on
+                            _mainOnly.Add(id);
+                            GLLog.Warn(id + " cannot be called from a background thread (" + ex.Message + "); its events are now sent on the main thread.");
+                        }
+                        else GLLog.Warn(id + " rejected '" + e.name + "': " + ex.Message);
+                    }
                     sends++;
                     if (!sent) continue;
                     e.dests.RemoveAt(j);
                     GLStore.Ack(e.eid, id);
                     _acksSinceCompact++;
-                    if (GLLog.IsVerbose) GLLog.Trace("-> " + id + " '" + e.name + "' (gl_eid " + e.eid + ")");
+                    if (GLLog.IsVerbose) GLLog.Trace("-> " + id + " '" + e.name + "' (gl_eid " + e.eid + (onMainThread ? ", main thread)" : ")"));
                 }
                 if (e.dests.Count == 0)
                 {
@@ -436,41 +506,27 @@ namespace GameLyft.Sdk
         }
 
         /// <summary>
-        /// Main thread, on pause: hand this event to every ready destination right now instead of
-        /// waiting for the next frame (the game may be killed in the background before it comes).
-        /// The platform SDK stores and sends it on its own thread. The acknowledgements are flushed
-        /// to disk; destinations not ready yet keep it queued as usual. At least once, as always.
+        /// Main thread, on pause / quit: wake the dispatcher, give it a moment to hand this event to the
+        /// platform SDKs (they store and send it on their own threads), then flush the acknowledgements
+        /// to disk. The game may be killed in the background right after. At least once, as always.
         /// </summary>
         internal static void DeliverNow(GLEvent e)
         {
-            if (e == null || !GLMain.IsMainThread) return;
-            if (_instance != null) _instance.SendImmediately(e);
-            GLStore.FlushBlocking(400);
-        }
-
-        private void SendImmediately(GLEvent e)
-        {
-            for (int j = e.dests.Count - 1; j >= 0; j--)
+            if (e == null) return;
+            Signal();
+            if (_instance != null)
             {
-                string id = e.dests[j];
-                var d = GLDestinationRegistry.Find(id);
-                if (d == null) continue;
-                bool ok = _ready.TryGetValue(id, out var r) && r;
-                if (!ok)
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                while (sw.ElapsedMilliseconds < 300)
                 {
-                    try { ok = d.IsReady(); } catch { ok = false; }
-                    if (ok) _ready[id] = true;
+                    bool done;
+                    lock (_instance._sync) done = e.dests.Count == 0;
+                    if (done) break;
+                    Thread.Sleep(5);
                 }
-                if (!ok) continue;
-                bool sent;
-                try { sent = d.Send(e); }
-                catch (Exception ex) { sent = false; GLLog.Warn(id + " rejected '" + e.name + "': " + ex.Message); }
-                if (!sent) continue;
-                e.dests.RemoveAt(j);          // same instance the queue will pick up: nothing left to send there
-                GLStore.Ack(e.eid, id);
-                _acksSinceCompact++;
-                if (GLLog.IsVerbose) GLLog.Trace("-> " + id + " '" + e.name + "' (gl_eid " + e.eid + ", sent immediately on pause)");
+                if (GLLog.IsVerbose && e.dests.Count == 0) GLLog.Trace("'" + e.name + "' (gl_eid " + e.eid + ") delivered on pause in " + sw.ElapsedMilliseconds + " ms.");
             }
+            GLStore.FlushBlocking(400);
         }
 
         private void OnApplicationPause(bool paused)
@@ -481,6 +537,14 @@ namespace GameLyft.Sdk
         private void OnApplicationQuit()
         {
             GLStore.FlushBlocking(400);
+            _running = false;
+            Signal();
+        }
+
+        private void OnDestroy()
+        {
+            _running = false;   // editor: stop the worker when Play mode ends
+            Signal();
         }
     }
 }

@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] - 2026-10-07
+
+### Changed
+- **Events are delivered from a background thread ("GameLyft.Dispatch").** Every event goes to
+  Firebase / AppsFlyer / Adjust / … the moment it is tracked, also while Unity's main thread is
+  paused (a full-screen ad on screen, the app in the background) — before, delivery ran in
+  `Update()` and waited for the game to resume. On Android the thread is attached to the JNI VM.
+  A destination whose SDK throws when called off the main thread is switched to main-thread
+  delivery automatically for the rest of the run.
+- **AppLovin MAX "ad displayed" is seen the moment the ad is on screen.** MAX's Unity plugin
+  queues displayed / hidden for the main thread, which is paused while the ad shows, so they used
+  to arrive only after the ad closed. The SDK now takes MAX's native background-callback slot
+  (`MaxUnityPlugin.setBackgroundCallback` / `_MaxSetBackgroundCallback`), reads displayed /
+  hidden / failed-to-display on arrival, and forwards every event unchanged to
+  `MaxSdkCallbacks.ForwardEvent`, so the game's own MAX callbacks behave exactly as before. When an
+  ad is reported within 3 s of a pause, engagement counts that pause as ad time immediately and
+  the clock keeps running. If the hook cannot be installed (an unexpected MAX plugin version), the
+  previous behaviour applies: ad time is credited when the game resumes. Verified with MAX 8.6.4.
+- **Ad time is capped at 2 minutes per ad** (was 3), so a player who leaves the app while an ad is
+  up is credited at most 2 minutes.
+- Ads are tracked per ad unit, so an ad reported both in real time and through MAX's C# events is
+  counted once.
+
 ## [1.1.1] - 2026-10-06
 
 ### Fixed
