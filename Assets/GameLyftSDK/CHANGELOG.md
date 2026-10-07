@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.4] - 2026-10-07
+
+### Added
+- **Firebase is detected automatically — no `MarkReady` needed.** The SDK reads two values of
+  `FirebaseApp`'s own private state, about once a second: whether a dependency check is running
+  (`IsCheckDependenciesRunning`) and whether the game has created a Firebase app (`nameToProxy`).
+  Firebase is ready once no check is running and the app exists. The SDK never calls a Firebase
+  API that can throw "Don't call Firebase functions before CheckDependencies has finished", never
+  runs the check and never creates the app, so it cannot interfere with the game's Firebase setup.
+  Verified with Firebase Unity SDK 13.10.0; if those members are missing in another version,
+  detection turns itself off with one warning and `MarkReady(GLDestination.Firebase)` is needed.
+  `MarkReady` still works as an immediate override.
+
 ## [1.1.3] - 2026-10-07
 
 ### Fixed

@@ -42,10 +42,15 @@ SETUP
    callback never comes, it delivers 10 s after initSDK(). Keep GameLyft initialized before
    startSDK() (the prefab in the first scene does this).
 
-   For the other platforms, tell GameLyft each one is ready. GameLyft never probes Firebase
-   itself — probing it while its dependency check runs throws
-   "Don't call Firebase functions before CheckDependencies has finished".
+   Firebase is detected automatically too: once no dependency check is running and the game has
+   created its Firebase app (its first FirebaseApp.DefaultInstance / FirebaseAnalytics call after
+   CheckAndFixDependenciesAsync). GameLyft only reads Firebase's own state for this — it never
+   calls a Firebase API during the check, so it cannot cause "Don't call Firebase functions before
+   CheckDependencies has finished". A game that never touches Firebase itself should still mark it.
 
+   For the other platforms, tell GameLyft each one is ready:
+
+     // Optional for Firebase: mark it yourself to deliver straight away
      FirebaseApp.CheckAndFixDependenciesAsync().ContinueWith(t => {
          if (t.Result == DependencyStatus.Available) GameLyftAnalytics.MarkReady(GLDestination.Firebase);
      });
