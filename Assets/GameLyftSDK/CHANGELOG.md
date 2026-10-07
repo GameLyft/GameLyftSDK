@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.3] - 2026-10-07
+
+### Fixed
+- **AppLovin MAX "ad displayed" is now recognised in real time.** The 1.1.2 hook received the
+  event on time but read its name with a text search, which picked up a "name" field from the ad
+  info nested inside "displayed" events, so the start was missed (hidden was seen) and ad time was
+  only credited on resume. The hook now parses the event with MAX's own JSON reader and reads the
+  top-level name and ad unit.
+
 ## [1.1.2] - 2026-10-07
 
 ### Changed

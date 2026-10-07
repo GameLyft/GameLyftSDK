@@ -1,7 +1,7 @@
 #if GAMELYFT_APPLOVIN
 using System;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace GameLyft.Sdk
@@ -24,8 +24,6 @@ namespace GameLyft.Sdk
     internal static class GLMaxRealtimeHook
     {
         private static bool _installed;
-        private static readonly Regex NameRe = new Regex("\"name\"\\s*:\\s*\"([^\"]+)\"", RegexOptions.Compiled);
-        private static readonly Regex UnitRe = new Regex("\"adUnitId\"\\s*:\\s*\"([^\"]*)\"", RegexOptions.Compiled);
 
         internal static bool Installed => _installed;
 
@@ -85,11 +83,14 @@ namespace GameLyft.Sdk
             if (propsStr.IndexOf("Displayed", StringComparison.Ordinal) < 0
                 && propsStr.IndexOf("Hidden", StringComparison.Ordinal) < 0
                 && propsStr.IndexOf("FailedToDisplay", StringComparison.Ordinal) < 0) return;
-            var m = NameRe.Match(propsStr);
-            if (!m.Success) return;
-            string name = m.Groups[1].Value;
-            var u = UnitRe.Match(propsStr);
-            string unit = u.Success ? u.Groups[1].Value : null;
+            // Parse with MAX's own JSON reader and read the TOP-LEVEL keys: the ad info nested in the
+            // event (waterfall, network, ...) has "name" fields of its own, which a text search can
+            // pick up instead of the event name.
+            var props = AppLovinMax.ThirdParty.MiniJson.Json.Deserialize(propsStr) as Dictionary<string, object>;
+            if (props == null) return;
+            string name = props.TryGetValue("name", out var n) ? n as string : null;
+            if (string.IsNullOrEmpty(name)) return;
+            string unit = props.TryGetValue("adUnitId", out var u) ? u as string : null;
             switch (name)
             {
                 case "OnInterstitialDisplayedEvent":
